@@ -29,9 +29,19 @@ const SERVICE_TYPE_LABELS = Object.freeze({
   preorder: 'Preorder',
   support: 'Support',
 });
+const MARKETPLACE_REVIEW_SERVICE_TYPES = new Set([
+  'purchase',
+  'cashout',
+  'middleman',
+  'preorder',
+]);
 
 function getServiceTypeLabel(serviceType) {
   return SERVICE_TYPE_LABELS[serviceType] || SERVICE_TYPE_LABELS.support;
+}
+
+function requiresMarketplaceReview(serviceType) {
+  return MARKETPLACE_REVIEW_SERVICE_TYPES.has(serviceType);
 }
 
 function ticketUserError(message, userMessage, type = ErrorTypes.VALIDATION, context = {}) {
@@ -62,8 +72,8 @@ function rethrowTicketError(error, operation, userMessage, context = {}) {
 
 
 
-function buildTicketControlRow({ claimedBy = null, transactionComplete = false } = {}) {
-  return new ActionRowBuilder().addComponents(
+function buildTicketControlRow({ claimedBy = null, transactionComplete = false, serviceType = 'support' } = {}) {
+  const buttons = [
     new ButtonBuilder()
       .setCustomId('ticket_claim')
       .setLabel(claimedBy ? 'Claimed' : 'Claim')
@@ -80,13 +90,18 @@ function buildTicketControlRow({ claimedBy = null, transactionComplete = false }
       .setLabel('Close')
       .setStyle(ButtonStyle.Danger)
       .setEmoji('🔒'),
-    new ButtonBuilder()
+  ];
+
+  if (requiresMarketplaceReview(serviceType)) {
+    buttons.push(new ButtonBuilder()
       .setCustomId('ticket_complete_transaction')
       .setLabel(transactionComplete ? 'Review Required' : 'Complete Transaction')
       .setStyle(transactionComplete ? ButtonStyle.Secondary : ButtonStyle.Success)
       .setEmoji(transactionComplete ? '⭐' : '✅')
-      .setDisabled(!claimedBy || transactionComplete),
-  );
+      .setDisabled(!claimedBy || transactionComplete));
+  }
+
+  return new ActionRowBuilder().addComponents(buttons);
 }
 
 export const getUserTicketCount = wrapServiceBoundary(async function getUserTicketCount(guildId, userId) {
@@ -208,7 +223,7 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
       ],
     });
     
-    const row = buildTicketControlRow();
+    const row = buildTicketControlRow({ serviceType: ticketData.serviceType });
     
     if (ticketConfig.enablePriority) {
       row.addComponents(
@@ -262,17 +277,36 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
   }
 }
 
-export async function closeTicket(channel, closer, reason = 'No reason provided') {
+export async function closeTicket(
+  channel,
+  closer,
+  reason = 'No reason provided',
+  { overrideMarketplaceReview = false } = {},
+) {
   try {
     const ticketData = requireTicket(await getTicketData(channel.guild.id, channel.id), channel);
 
-    if (ticketData.transactionStatus === 'review_required' && !ticketData.marketplaceReview) {
+    if (
+      requiresMarketplaceReview(ticketData.serviceType)
+      && ticketData.transactionStatus === 'review_required'
+      && !ticketData.marketplaceReview
+      && !overrideMarketplaceReview
+    ) {
       ticketUserError(
         'Marketplace review required before closing',
         'This transaction is complete, but the buyer must submit the required marketplace review and image proof before the ticket can be closed.',
         ErrorTypes.VALIDATION,
         { channelId: channel.id, ticketId: ticketData.id, operation: 'closeTicket' },
       );
+    }
+
+    if (overrideMarketplaceReview && ticketData.transactionStatus === 'review_required' && !ticketData.marketplaceReview) {
+      ticketData.marketplaceReviewOverride = {
+        overriddenBy: closer.id,
+        reason,
+        overriddenAt: new Date().toISOString(),
+      };
+      ticketData.transactionStatus = 'review_overridden';
     }
     
     const config = await getGuildConfig(channel.client, channel.guild.id);
@@ -441,7 +475,8 @@ components: []
         metadata: {
           dmSent: dmOnClose,
           closedAt: ticketData.closedAt,
-          movedToClosedCategory
+          movedToClosedCategory,
+          marketplaceReviewOverridden: Boolean(ticketData.marketplaceReviewOverride),
         }
       }
     });
@@ -490,7 +525,11 @@ export async function claimTicket(channel, claimer) {
         sellerField.value = claimer.toString();
       }
       
-      const row = buildTicketControlRow({ claimedBy: claimer.id, transactionComplete: ticketData.transactionStatus === 'review_required' });
+      const row = buildTicketControlRow({
+        claimedBy: claimer.id,
+        transactionComplete: ticketData.transactionStatus === 'review_required',
+        serviceType: ticketData.serviceType,
+      });
       
       await ticketMessage.edit({ 
         embeds: [embed],
@@ -551,6 +590,15 @@ export async function completeMarketplaceTransaction(channel, seller) {
     const ticketData = requireTicket(await getTicketData(channel.guild.id, channel.id), channel);
     const config = await getGuildConfig(channel.client, channel.guild.id);
 
+    if (!requiresMarketplaceReview(ticketData.serviceType)) {
+      ticketUserError(
+        'Marketplace review is not available for support tickets',
+        'Support tickets do not require marketplace completion or a vouch.',
+        ErrorTypes.VALIDATION,
+        { channelId: channel.id, serviceType: ticketData.serviceType, operation: 'completeMarketplaceTransaction' },
+      );
+    }
+
     if (!ticketData.sellerId || ticketData.sellerId !== seller.id) {
       ticketUserError(
         'Only the claimed seller can complete the transaction',
@@ -595,7 +643,11 @@ export async function completeMarketplaceTransaction(channel, seller) {
     );
     if (ticketMessage) {
       await ticketMessage.edit({
-        components: [buildTicketControlRow({ claimedBy: seller.id, transactionComplete: true })],
+        components: [buildTicketControlRow({
+          claimedBy: seller.id,
+          transactionComplete: true,
+          serviceType: ticketData.serviceType,
+        })],
       });
     }
 
@@ -782,6 +834,7 @@ export async function reopenTicket(channel, reopener) {
       const row = buildTicketControlRow({
         claimedBy: ticketData.claimedBy,
         transactionComplete: Boolean(ticketData.transactionCompletedAt),
+        serviceType: ticketData.serviceType,
       });
       
       await ticketMessage.edit({ 
@@ -1118,7 +1171,10 @@ export async function unclaimTicket(channel, unclaimer) {
         sellerField.value = 'Not claimed';
       }
       
-      const row = buildTicketControlRow({ transactionComplete: Boolean(ticketData.transactionCompletedAt) });
+      const row = buildTicketControlRow({
+        transactionComplete: Boolean(ticketData.transactionCompletedAt),
+        serviceType: ticketData.serviceType,
+      });
       
       await ticketMessage.edit({ 
         embeds: [embed],
