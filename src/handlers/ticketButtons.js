@@ -9,7 +9,14 @@ import {
   StringSelectMenuOptionBuilder,
 } from 'discord.js';
 import { createEmbed, successEmbed } from '../utils/embeds.js';
-import { createTicket, closeTicket, claimTicket, completeMarketplaceTransaction, updateTicketPriority } from '../services/ticket.js';
+import {
+  createTicket,
+  closeTicket,
+  claimTicket,
+  completeMarketplaceTransaction,
+  getUserTicketCount,
+  updateTicketPriority,
+} from '../services/ticket.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
 import { logger } from '../utils/logger.js';
@@ -227,7 +234,7 @@ const createTicketModalHandler = {
         )]
       });
     } catch (error) {
-      await handleInteractionError(interaction, error, { type: 'button', handler: 'ticket', customId: interaction.customId });
+      await handleInteractionError(interaction, error, { type: 'modal', handler: 'create_ticket_modal', customId: interaction.customId });
     }
   }
 };
