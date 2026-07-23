@@ -277,7 +277,12 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
   }
 }
 
-export async function closeTicket(channel, closer, reason = 'No reason provided') {
+export async function closeTicket(
+  channel,
+  closer,
+  reason = 'No reason provided',
+  { overrideMarketplaceReview = false } = {},
+) {
   try {
     const ticketData = requireTicket(await getTicketData(channel.guild.id, channel.id), channel);
 
@@ -285,6 +290,7 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
       requiresMarketplaceReview(ticketData.serviceType)
       && ticketData.transactionStatus === 'review_required'
       && !ticketData.marketplaceReview
+      && !overrideMarketplaceReview
     ) {
       ticketUserError(
         'Marketplace review required before closing',
@@ -292,6 +298,15 @@ export async function closeTicket(channel, closer, reason = 'No reason provided'
         ErrorTypes.VALIDATION,
         { channelId: channel.id, ticketId: ticketData.id, operation: 'closeTicket' },
       );
+    }
+
+    if (overrideMarketplaceReview && ticketData.transactionStatus === 'review_required' && !ticketData.marketplaceReview) {
+      ticketData.marketplaceReviewOverride = {
+        overriddenBy: closer.id,
+        reason,
+        overriddenAt: new Date().toISOString(),
+      };
+      ticketData.transactionStatus = 'review_overridden';
     }
     
     const config = await getGuildConfig(channel.client, channel.guild.id);
@@ -460,7 +475,8 @@ components: []
         metadata: {
           dmSent: dmOnClose,
           closedAt: ticketData.closedAt,
-          movedToClosedCategory
+          movedToClosedCategory,
+          marketplaceReviewOverridden: Boolean(ticketData.marketplaceReviewOverride),
         }
       }
     });
