@@ -90,6 +90,8 @@ function getLogChannelForEventType(config, eventType) {
     case 'pin':
     case 'unpin':
     case 'feedback':
+    case 'transaction_complete':
+    case 'marketplace_review':
       return config.ticketLogsChannelId || null;
 
     default:
@@ -106,6 +108,8 @@ const TICKET_EVENT_STYLES = {
   priority: { color: 0x9b59b6, title: 'Priority Updated' },
   transcript: { color: 0x57F287, title: 'Transcript Generated' },
   feedback: { color: 0x57F287, title: 'Feedback Received' },
+  transaction_complete: { color: 0xF1C40F, title: 'Transaction Completed' },
+  marketplace_review: { color: 0xF1C40F, title: 'Marketplace Vouch Submitted' },
 };
 
 async function createTicketLogEmbed(guild, event) {
@@ -133,6 +137,10 @@ async function createTicketLogEmbed(guild, event) {
       }
       if (event.reason) {
         fields.push({ name: 'Reason', value: String(event.reason).slice(0, 1024), inline: false });
+      }
+      if (event.metadata?.serviceType) {
+        const serviceType = String(event.metadata.serviceType);
+        fields.push({ name: 'Service Type', value: serviceType.charAt(0).toUpperCase() + serviceType.slice(1), inline: true });
       }
       break;
 
@@ -164,7 +172,7 @@ async function createTicketLogEmbed(guild, event) {
       inlineFields = [
         { name: 'Ticket', value: ticketRef, inline: true },
         {
-          name: event.type === 'claim' ? 'Claimed by' : 'Unclaimed by',
+          name: event.type === 'claim' ? 'Seller' : 'Unclaimed by',
           value: executorMention || 'Unknown',
           inline: true,
         },
@@ -184,6 +192,28 @@ async function createTicketLogEmbed(guild, event) {
       ];
       break;
     }
+
+    case 'transaction_complete':
+      author = await resolveUserAuthor(guild.client, event.executorId);
+      inlineFields = [
+        { name: 'Ticket', value: ticketRef, inline: true },
+        { name: 'Seller', value: executorMention || 'Unknown', inline: true },
+        { name: 'Service Type', value: String(event.metadata?.serviceType || 'support'), inline: true },
+      ];
+      break;
+
+    case 'marketplace_review':
+      author = await resolveUserAuthor(guild.client, event.userId);
+      inlineFields = [
+        { name: 'Ticket', value: ticketRef, inline: true },
+        { name: 'Buyer', value: userMention || 'Unknown', inline: true },
+        { name: 'Seller', value: event.metadata?.sellerId ? `<@${event.metadata.sellerId}>` : 'Unknown', inline: true },
+        { name: 'Rating', value: formatRatingStars(event.metadata?.rating) || 'Unknown', inline: true },
+      ];
+      if (event.metadata?.review) {
+        fields.push({ name: 'Review', value: String(event.metadata.review).slice(0, 1024), inline: false });
+      }
+      break;
 
     case 'transcript':
       inlineFields = [
@@ -277,4 +307,3 @@ export function validateLogChannel(channel, botMember) {
 
   return { valid: true };
 }
-

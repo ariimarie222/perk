@@ -7,10 +7,12 @@ import {
   ButtonStyle,
   PermissionFlagsBits,
   AttachmentBuilder,
+  EmbedBuilder,
 } from 'discord.js';
 import { buildStandardLogEmbed, formatLogLine } from '../utils/logging/logEmbeds.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { getTicketData, saveTicketData, deleteTicketData, getOpenTicketCountForUser, incrementTicketCounter } from '../utils/database.js';
+import { recordSellerMarketplaceReview } from '../utils/database/tickets.js';
 import { logger } from '../utils/logger.js';
 import { createEmbed, errorEmbed } from '../utils/embeds.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
@@ -20,6 +22,17 @@ import { PRIORITY_MAP } from '../utils/helpers.js';
 const TICKET_DELETE_DELAY_MS = 3000;
 const TICKET_DELETE_DELAY_SECONDS = Math.floor(TICKET_DELETE_DELAY_MS / 1000);
 const TICKET_SERVICE = 'ticketService';
+const SERVICE_TYPE_LABELS = Object.freeze({
+  purchase: 'Purchase',
+  cashout: 'Cashout',
+  middleman: 'Middleman',
+  preorder: 'Preorder',
+  support: 'Support',
+});
+
+function getServiceTypeLabel(serviceType) {
+  return SERVICE_TYPE_LABELS[serviceType] || SERVICE_TYPE_LABELS.support;
+}
 
 function ticketUserError(message, userMessage, type = ErrorTypes.VALIDATION, context = {}) {
   throw createError(message, type, userMessage, { service: TICKET_SERVICE, ...context });
@@ -49,7 +62,7 @@ function rethrowTicketError(error, operation, userMessage, context = {}) {
 
 
 
-function buildTicketControlRow({ claimedBy = null } = {}) {
+function buildTicketControlRow({ claimedBy = null, transactionComplete = false } = {}) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('ticket_claim')
@@ -67,6 +80,12 @@ function buildTicketControlRow({ claimedBy = null } = {}) {
       .setLabel('Close')
       .setStyle(ButtonStyle.Danger)
       .setEmoji('🔒'),
+    new ButtonBuilder()
+      .setCustomId('ticket_complete_transaction')
+      .setLabel(transactionComplete ? 'Review Required' : 'Complete Transaction')
+      .setStyle(transactionComplete ? ButtonStyle.Secondary : ButtonStyle.Success)
+      .setEmoji(transactionComplete ? '⭐' : '✅')
+      .setDisabled(!claimedBy || transactionComplete),
   );
 }
 
@@ -79,7 +98,7 @@ export const getUserTicketCount = wrapServiceBoundary(async function getUserTick
   context: {},
 });
 
-export async function createTicket(guild, member, categoryId, reason = 'No reason provided', priority = 'none') {
+export async function createTicket(guild, member, categoryId, reason = 'No reason provided', priority = 'none', serviceType = 'support') {
   try {
     const config = await getGuildConfig(guild.client, guild.id);
     const ticketConfig = config.tickets || {};
@@ -127,10 +146,12 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
       }
     }
     
+    const serviceTypeLabel = getServiceTypeLabel(serviceType);
     const channel = await guild.channels.create({
       name: channelName,
       type: ChannelType.GuildText,
       parent: category?.id,
+      topic: `Marketplace service: ${serviceTypeLabel} | Customer: ${member.user?.tag || member.id}`,
       permissionOverwrites: [
         {
           id: guild.id,
@@ -164,6 +185,8 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
       createdAt: new Date().toISOString(),
       status: 'open',
       claimedBy: null,
+      sellerId: null,
+      serviceType: Object.hasOwn(SERVICE_TYPE_LABELS, serviceType) ? serviceType : 'support',
       priority: priority || 'none',
       reason,
     };
@@ -178,7 +201,9 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
       color: priorityInfo.color,
       fields: [
         { name: 'Status', value: '🟢 Open', inline: true },
+        { name: 'Service Type', value: serviceTypeLabel, inline: true },
         { name: 'Claimed By', value: 'Not claimed', inline: true },
+        { name: 'Seller', value: 'Not claimed', inline: true },
         { name: 'Created', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
       ],
     });
@@ -224,7 +249,8 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
         priority: priority || 'none',
         metadata: {
           channelId: channel.id,
-          categoryName: category?.name || 'Default'
+          categoryName: category?.name || 'Default',
+          serviceType: ticketData.serviceType,
         }
       }
     });
@@ -239,6 +265,15 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
 export async function closeTicket(channel, closer, reason = 'No reason provided') {
   try {
     const ticketData = requireTicket(await getTicketData(channel.guild.id, channel.id), channel);
+
+    if (ticketData.transactionStatus === 'review_required' && !ticketData.marketplaceReview) {
+      ticketUserError(
+        'Marketplace review required before closing',
+        'This transaction is complete, but the buyer must submit the required marketplace review and image proof before the ticket can be closed.',
+        ErrorTypes.VALIDATION,
+        { channelId: channel.id, ticketId: ticketData.id, operation: 'closeTicket' },
+      );
+    }
     
     const config = await getGuildConfig(channel.client, channel.guild.id);
     const dmOnClose = config.dmOnClose !== false;
@@ -432,6 +467,7 @@ export async function claimTicket(channel, claimer) {
     }
     
     ticketData.claimedBy = claimer.id;
+    ticketData.sellerId = claimer.id;
     ticketData.claimedAt = new Date().toISOString();
     
     await saveTicketData(channel.guild.id, channel.id, ticketData);
@@ -445,12 +481,16 @@ export async function claimTicket(channel, claimer) {
     if (ticketMessage) {
       const embed = ticketMessage.embeds[0];
       const claimedField = embed.fields?.find(f => f.name === 'Claimed By');
+      const sellerField = embed.fields?.find(f => f.name === 'Seller');
       
       if (claimedField) {
         claimedField.value = claimer.toString();
       }
+      if (sellerField) {
+        sellerField.value = claimer.toString();
+      }
       
-      const row = buildTicketControlRow({ claimedBy: claimer.id });
+      const row = buildTicketControlRow({ claimedBy: claimer.id, transactionComplete: ticketData.transactionStatus === 'review_required' });
       
       await ticketMessage.edit({ 
         embeds: [embed],
@@ -460,7 +500,7 @@ export async function claimTicket(channel, claimer) {
     
     const claimEmbed = createEmbed({
       title: 'Ticket Claimed',
-      description: `🎉 ${claimer} has claimed this ticket!`,
+      description: `🎉 ${claimer} is now the seller for this ticket!`,
       color: '#2ecc71'
     });
     
@@ -493,7 +533,8 @@ export async function claimTicket(channel, claimer) {
         userId: ticketData.userId,
         executorId: claimer.id,
         metadata: {
-          claimedAt: ticketData.claimedAt
+          claimedAt: ticketData.claimedAt,
+          sellerId: ticketData.sellerId,
         }
       }
     });
@@ -502,6 +543,168 @@ export async function claimTicket(channel, claimer) {
     
   } catch (error) {
     rethrowTicketError(error, 'claimTicket', 'Failed to claim ticket. Please try again in a moment.', { guildId: channel?.guild?.id, channelId: channel?.id, claimerId: claimer?.id });
+  }
+}
+
+export async function completeMarketplaceTransaction(channel, seller) {
+  try {
+    const ticketData = requireTicket(await getTicketData(channel.guild.id, channel.id), channel);
+    const config = await getGuildConfig(channel.client, channel.guild.id);
+
+    if (!ticketData.sellerId || ticketData.sellerId !== seller.id) {
+      ticketUserError(
+        'Only the claimed seller can complete the transaction',
+        'Only the claimed seller can mark this transaction as complete.',
+        ErrorTypes.PERMISSION,
+        { channelId: channel.id, sellerId: ticketData.sellerId, executorId: seller.id, operation: 'completeMarketplaceTransaction' },
+      );
+    }
+    if (!config.vouchChannelId) {
+      ticketUserError(
+        'Vouch channel not configured',
+        'A marketplace vouch channel must be configured before this transaction can be completed.',
+        ErrorTypes.CONFIGURATION,
+        { channelId: channel.id, operation: 'completeMarketplaceTransaction' },
+      );
+    }
+    if (ticketData.marketplaceReview) {
+      ticketUserError(
+        'Marketplace review already submitted',
+        'The buyer has already submitted the required marketplace review.',
+        ErrorTypes.VALIDATION,
+        { channelId: channel.id, operation: 'completeMarketplaceTransaction' },
+      );
+    }
+    if (ticketData.transactionStatus === 'review_required') {
+      ticketUserError(
+        'Marketplace review already requested',
+        'The buyer has already been asked to submit the required marketplace review.',
+        ErrorTypes.VALIDATION,
+        { channelId: channel.id, operation: 'completeMarketplaceTransaction' },
+      );
+    }
+
+    ticketData.transactionStatus = 'review_required';
+    ticketData.transactionCompletedAt = new Date().toISOString();
+    ticketData.transactionCompletedBy = seller.id;
+    await saveTicketData(channel.guild.id, channel.id, ticketData);
+
+    const messages = await channel.messages.fetch();
+    const ticketMessage = messages.find(message =>
+      message.embeds.length > 0 && message.embeds[0].title?.startsWith('Ticket #')
+    );
+    if (ticketMessage) {
+      await ticketMessage.edit({
+        components: [buildTicketControlRow({ claimedBy: seller.id, transactionComplete: true })],
+      });
+    }
+
+    const reviewEmbed = createEmbed({
+      title: '⭐ Marketplace Review Required',
+      description: `<@${ticketData.userId}>, the seller has marked this transaction as complete. Before this ticket can be closed, please:\n\n1. Upload at least one image proving the completed transaction in this ticket.\n2. Click **Submit Marketplace Review**.\n3. Provide a 1–5 star rating and written review.`,
+      color: '#F1C40F',
+    });
+    const reviewRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`ticket_marketplace_review:${channel.guild.id}:${channel.id}`)
+        .setLabel('Submit Marketplace Review')
+        .setStyle(ButtonStyle.Primary)
+        .setEmoji('⭐'),
+    );
+    await channel.send({ embeds: [reviewEmbed], components: [reviewRow] });
+
+    await logTicketEvent({
+      client: channel.client,
+      guildId: channel.guild.id,
+      event: {
+        type: 'transaction_complete',
+        ticketId: channel.id,
+        ticketNumber: ticketData.id,
+        userId: ticketData.userId,
+        executorId: seller.id,
+        metadata: { sellerId: seller.id, serviceType: ticketData.serviceType },
+      },
+    });
+
+    return ticketData;
+  } catch (error) {
+    rethrowTicketError(error, 'completeMarketplaceTransaction', 'Failed to complete this transaction. Please try again in a moment.', { guildId: channel?.guild?.id, channelId: channel?.id, sellerId: seller?.id });
+  }
+}
+
+export async function submitMarketplaceReview(channel, buyer, { rating, review, proofAttachment }) {
+  try {
+    const ticketData = requireTicket(await getTicketData(channel.guild.id, channel.id), channel);
+    if (ticketData.userId !== buyer.id) {
+      ticketUserError('Only the buyer can submit a marketplace review', 'Only the ticket creator can submit this marketplace review.', ErrorTypes.PERMISSION, { channelId: channel.id, operation: 'submitMarketplaceReview' });
+    }
+    if (ticketData.transactionStatus !== 'review_required' || !ticketData.sellerId) {
+      ticketUserError('Marketplace review is not required', 'This ticket is not waiting for a marketplace review.', ErrorTypes.VALIDATION, { channelId: channel.id, operation: 'submitMarketplaceReview' });
+    }
+    if (ticketData.marketplaceReview) {
+      ticketUserError('Marketplace review already submitted', 'A marketplace review has already been submitted for this ticket.', ErrorTypes.VALIDATION, { channelId: channel.id, operation: 'submitMarketplaceReview' });
+    }
+
+    const config = await getGuildConfig(channel.client, channel.guild.id);
+    const vouchChannel = config.vouchChannelId
+      ? await channel.client.channels.fetch(config.vouchChannelId).catch(() => null)
+      : null;
+    if (!vouchChannel?.isSendable()) {
+      ticketUserError('Vouch channel unavailable', 'The configured marketplace vouch channel is unavailable. Please ask staff to check the ticket settings.', ErrorTypes.CONFIGURATION, { channelId: channel.id, operation: 'submitMarketplaceReview' });
+    }
+
+    const serviceTypeLabel = getServiceTypeLabel(ticketData.serviceType);
+    const submittedAt = new Date().toISOString();
+    const vouchEmbed = new EmbedBuilder()
+      .setTitle('⭐ New Marketplace Vouch')
+      .setColor('#F1C40F')
+      .addFields(
+        { name: 'Seller', value: `<@${ticketData.sellerId}>`, inline: true },
+        { name: 'Buyer', value: `<@${ticketData.userId}>`, inline: true },
+        { name: 'Service', value: serviceTypeLabel, inline: true },
+        { name: 'Rating', value: '⭐'.repeat(rating), inline: true },
+        { name: 'Review', value: review.slice(0, 1024), inline: false },
+      )
+      .setImage(proofAttachment.url)
+      .setTimestamp(new Date(submittedAt));
+    const vouchMessage = await vouchChannel.send({ embeds: [vouchEmbed] });
+
+    ticketData.marketplaceReview = {
+      rating,
+      review,
+      image: {
+        url: proofAttachment.url,
+        name: proofAttachment.name || null,
+        contentType: proofAttachment.contentType || null,
+        messageId: proofAttachment.messageId,
+      },
+      sellerId: ticketData.sellerId,
+      buyerId: ticketData.userId,
+      serviceType: ticketData.serviceType || 'support',
+      submittedAt,
+      vouchMessageId: vouchMessage.id,
+      vouchChannelId: vouchChannel.id,
+    };
+    ticketData.transactionStatus = 'review_complete';
+    await saveTicketData(channel.guild.id, channel.id, ticketData);
+
+    const sellerStats = await recordSellerMarketplaceReview(channel.guild.id, ticketData.sellerId, rating);
+    await logTicketEvent({
+      client: channel.client,
+      guildId: channel.guild.id,
+      event: {
+        type: 'marketplace_review',
+        ticketId: channel.id,
+        ticketNumber: ticketData.id,
+        userId: ticketData.userId,
+        executorId: buyer.id,
+        metadata: { rating, review, sellerId: ticketData.sellerId, serviceType: ticketData.serviceType, vouchChannelId: vouchChannel.id },
+      },
+    });
+
+    return { ticketData, sellerStats, vouchChannel };
+  } catch (error) {
+    rethrowTicketError(error, 'submitMarketplaceReview', 'Failed to submit the marketplace review. Please try again in a moment.', { guildId: channel?.guild?.id, channelId: channel?.id, buyerId: buyer?.id });
   }
 }
 
@@ -576,7 +779,10 @@ export async function reopenTicket(channel, reopener) {
         statusField.value = '🟢 Open';
       }
       
-      const row = buildTicketControlRow({ claimedBy: ticketData.claimedBy });
+      const row = buildTicketControlRow({
+        claimedBy: ticketData.claimedBy,
+        transactionComplete: Boolean(ticketData.transactionCompletedAt),
+      });
       
       await ticketMessage.edit({ 
         embeds: [embed],
@@ -859,6 +1065,15 @@ export async function deleteTicket(channel, deleter) {
 export async function unclaimTicket(channel, unclaimer) {
   try {
     const ticketData = requireTicket(await getTicketData(channel.guild.id, channel.id), channel);
+
+    if (ticketData.transactionStatus === 'review_required') {
+      ticketUserError(
+        'Cannot unclaim a completed transaction',
+        'The seller cannot be changed while the buyer’s required marketplace review is pending.',
+        ErrorTypes.VALIDATION,
+        { channelId: channel.id, operation: 'unclaimTicket' },
+      );
+    }
     
     if (!ticketData.claimedBy) {
       ticketUserError(
@@ -880,6 +1095,7 @@ export async function unclaimTicket(channel, unclaimer) {
     
     const previousClaimer = ticketData.claimedBy;
     ticketData.claimedBy = null;
+    ticketData.sellerId = null;
     ticketData.claimedAt = null;
     
     await saveTicketData(channel.guild.id, channel.id, ticketData);
@@ -893,12 +1109,16 @@ export async function unclaimTicket(channel, unclaimer) {
     if (ticketMessage) {
       const embed = ticketMessage.embeds[0];
       const claimedField = embed.fields?.find(f => f.name === 'Claimed By');
+      const sellerField = embed.fields?.find(f => f.name === 'Seller');
       
       if (claimedField) {
         claimedField.value = 'Not claimed';
       }
+      if (sellerField) {
+        sellerField.value = 'Not claimed';
+      }
       
-      const row = buildTicketControlRow();
+      const row = buildTicketControlRow({ transactionComplete: Boolean(ticketData.transactionCompletedAt) });
       
       await ticketMessage.edit({ 
         embeds: [embed],

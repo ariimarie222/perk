@@ -1,6 +1,6 @@
 import { logger } from '../logger.js';
 import { db, getFromDb } from './wrapper.js';
-import { getTicketCounterKey, getTicketKey } from './keys.js';
+import { getSellerMarketplaceStatsKey, getTicketCounterKey, getTicketKey } from './keys.js';
 
 export { getTicketKey, getTicketCounterKey } from './keys.js';
 
@@ -94,6 +94,41 @@ export async function incrementTicketCounter(guildId) {
     await db.set(key, nextCounter);
 
     return nextCounter.toString().padStart(3, '0');
+}
+
+export async function getSellerMarketplaceStats(guildId, sellerId) {
+    if (!db.initialized) {
+        await db.initialize();
+    }
+
+    return await db.get(getSellerMarketplaceStatsKey(guildId, sellerId), {
+        sellerId,
+        completedTransactions: 0,
+        totalReviews: 0,
+        ratingTotal: 0,
+        averageRating: null,
+    });
+}
+
+export async function recordSellerMarketplaceReview(guildId, sellerId, rating) {
+    if (!db.initialized) {
+        await db.initialize();
+    }
+
+    const current = await getSellerMarketplaceStats(guildId, sellerId);
+    const totalReviews = Number(current.totalReviews || 0) + 1;
+    const ratingTotal = Number(current.ratingTotal || 0) + Number(rating);
+    const stats = {
+        sellerId,
+        completedTransactions: Number(current.completedTransactions || 0) + 1,
+        totalReviews,
+        ratingTotal,
+        averageRating: Math.round((ratingTotal / totalReviews) * 100) / 100,
+        updatedAt: new Date().toISOString(),
+    };
+
+    await db.set(getSellerMarketplaceStatsKey(guildId, sellerId), stats);
+    return stats;
 }
 
 async function listGuildTickets(guildId) {
