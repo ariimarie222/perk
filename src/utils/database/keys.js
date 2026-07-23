@@ -16,6 +16,10 @@ export function getTicketCounterKey(guildId) {
     return `guild:${guildId}:ticket:counter`;
 }
 
+export function getSellerMarketplaceStatsKey(guildId, sellerId) {
+    return `guild:${guildId}:marketplace:seller:${sellerId}:stats`;
+}
+
 export function getInviteTrackingKey(guildId) {
     return `guild:${guildId}:invites`;
 }

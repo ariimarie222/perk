@@ -128,6 +128,7 @@ function buildDashboardEmbed(config, guild, panelStatus = null, ticketStats = nu
     const staffRole = config.ticketStaffRoleId ? `<@&${config.ticketStaffRoleId}>` : '`Not set`';
     const ticketLogsChannel = config.ticketLogsChannelId ? `<#${config.ticketLogsChannelId}>` : '`Not set`';
     const transcriptChannel = config.ticketTranscriptChannelId ? `<#${config.ticketTranscriptChannelId}>` : '`Not set`';
+    const vouchChannel = config.vouchChannelId ? `<#${config.vouchChannelId}>` : '`Not set`';
 
     const openCategoryChannel = config.ticketCategoryId ? guild.channels.cache.get(config.ticketCategoryId) : null;
     const openCategory = openCategoryChannel ? openCategoryChannel.toString() : '`Not set`';
@@ -165,7 +166,7 @@ function buildDashboardEmbed(config, guild, panelStatus = null, ticketStats = nu
             { name: 'DM on Close', value: config.dmOnClose !== false ? 'Enabled' : 'Disabled', inline: true },
             { name: 'Ticket Logs Channel', value: ticketLogsChannel, inline: true },
             { name: 'Transcript Channel', value: transcriptChannel, inline: true },
-            { name: '\u200B', value: '\u200B', inline: true },
+            { name: 'Marketplace Vouch Channel', value: vouchChannel, inline: true },
             { name: 'Open Tickets', value: openTickets, inline: true },
             { name: 'Avg Close Time', value: avgCloseTime, inline: true },
             { name: 'Feedback Rating', value: feedbackSummary, inline: true },
@@ -209,6 +210,11 @@ function buildSelectMenu(guildId) {
                 .setDescription('Channel to receive ticket feedback, lifecycle events, and logs')
                 .setValue('logs_channel')
                 .setEmoji('🎫'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Set Marketplace Vouch Channel')
+                .setDescription('Channel where completed marketplace vouches are posted')
+                .setValue('vouch_channel')
+                .setEmoji('⭐'),
             new StringSelectMenuOptionBuilder()
                 .setLabel('Set Transcript Channel')
                 .setDescription('Channel to receive auto-generated transcripts on deletion')
@@ -313,6 +319,9 @@ export default {
                             break;
                         case 'logs_channel':
                             await handleLogsChannel(selectInteraction, interaction, guildConfig, guildId, client);
+                            break;
+                        case 'vouch_channel':
+                            await handleVouchChannel(selectInteraction, interaction, guildConfig, guildId, client);
                             break;
                         case 'transcript_channel':
                             await handleTranscriptChannel(selectInteraction, interaction, guildConfig, guildId, client);
@@ -741,6 +750,58 @@ async function handleLogsChannel(selectInteraction, rootInteraction, guildConfig
 
         await channelInteraction.followUp({
             embeds: [successEmbed('Logs Channel Updated', `Ticket logs will be sent to ${channel}`)],
+            flags: MessageFlags.Ephemeral,
+        });
+
+        await refreshDashboard(rootInteraction, guildConfig, guildId, client);
+    });
+
+    collector.on('end', (collected, reason) => {
+        if (reason === 'time' && collected.size === 0) {
+            replyUserError(selectInteraction, {
+                type: ErrorTypes.RATE_LIMIT,
+                message: 'No channel selected. No changes were made.',
+            }).catch(() => {});
+        }
+    });
+}
+
+async function handleVouchChannel(selectInteraction, rootInteraction, guildConfig, guildId, client) {
+    await selectInteraction.deferUpdate();
+
+    const channelSelect = new ChannelSelectMenuBuilder()
+        .setCustomId('ticket_cfg_vouch_channel')
+        .setPlaceholder('Select a channel...')
+        .addChannelTypes(ChannelType.GuildText)
+        .setMaxValues(1);
+
+    await selectInteraction.followUp({
+        embeds: [
+            new EmbedBuilder()
+                .setTitle('⭐ Select Marketplace Vouch Channel')
+                .setDescription('Choose where required buyer reviews and proof images will be posted after a completed transaction.')
+                .setColor(getColor('info')),
+        ],
+        components: [new ActionRowBuilder().addComponents(channelSelect)],
+        flags: MessageFlags.Ephemeral,
+    });
+
+    const collector = rootInteraction.channel.createMessageComponentCollector({
+        componentType: ComponentType.ChannelSelect,
+        filter: i => i.user.id === selectInteraction.user.id && i.customId === 'ticket_cfg_vouch_channel',
+        time: 60_000,
+        max: 1,
+    });
+
+    collector.on('collect', async channelInteraction => {
+        await channelInteraction.deferUpdate();
+        const channel = channelInteraction.channels.first();
+
+        guildConfig.vouchChannelId = channel.id;
+        await setGuildConfig(client, guildId, guildConfig);
+
+        await channelInteraction.followUp({
+            embeds: [successEmbed('Marketplace Vouch Channel Updated', `Completed marketplace vouches will be posted in ${channel}.`)],
             flags: MessageFlags.Ephemeral,
         });
 

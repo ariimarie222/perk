@@ -1,6 +1,15 @@
-import { ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder, AttachmentBuilder, MessageFlags } from 'discord.js';
+import {
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+  AttachmentBuilder,
+  MessageFlags,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
+} from 'discord.js';
 import { createEmbed, successEmbed } from '../utils/embeds.js';
-import { createTicket, closeTicket, claimTicket, updateTicketPriority } from '../services/ticket.js';
+import { createTicket, closeTicket, claimTicket, completeMarketplaceTransaction, updateTicketPriority } from '../services/ticket.js';
 import { getGuildConfig } from '../services/config/guildConfig.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
 import { logger } from '../utils/logger.js';
@@ -108,39 +117,22 @@ const createTicketHandler = {
     try {
       if (!(await ensureGuildContext(interaction))) return;
 
-      const rateLimitKey = `${interaction.user.id}:create_ticket`;
-      const allowed = await checkRateLimit(rateLimitKey, 3, 60000);
-      if (!allowed) {
-        await replyUserError(interaction, { type: ErrorTypes.RATE_LIMIT, message: 'You are creating tickets too quickly. Please wait a minute and try again.' });
-        return;
-      }
+      const ticketTypeMenu = new StringSelectMenuBuilder()
+        .setCustomId('ticket_type:select')
+        .setPlaceholder('Choose a ticket type...')
+        .addOptions(
+          new StringSelectMenuOptionBuilder().setLabel('Purchase').setDescription('Get help with a purchase').setValue('purchase').setEmoji('🛒'),
+          new StringSelectMenuOptionBuilder().setLabel('Cashout').setDescription('Request a cashout').setValue('cashout').setEmoji('💸'),
+          new StringSelectMenuOptionBuilder().setLabel('Middleman').setDescription('Request a middleman for a trade').setValue('middleman').setEmoji('🤝'),
+          new StringSelectMenuOptionBuilder().setLabel('Preorder').setDescription('Ask about a preorder').setValue('preorder').setEmoji('📦'),
+          new StringSelectMenuOptionBuilder().setLabel('Support').setDescription('Get help from the support team').setValue('support').setEmoji('🛟'),
+        );
 
-      const config = await getGuildConfig(client, interaction.guildId);
-      const maxTicketsPerUser = config.maxTicketsPerUser || 3;
-      
-      const { getUserTicketCount } = await import('../services/ticket.js');
-      const currentTicketCount = await getUserTicketCount(interaction.guildId, interaction.user.id);
-      
-      if (currentTicketCount >= maxTicketsPerUser) {
-        return await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: `You have reached the maximum number of open tickets (${maxTicketsPerUser}).\n\nPlease close your existing tickets before creating a new one.\n\n**Current Tickets:** ${currentTicketCount}/${maxTicketsPerUser}` });
-      }
-      
-      const modal = new ModalBuilder()
-        .setCustomId('create_ticket_modal')
-        .setTitle('Create a Ticket');
-
-      const reasonInput = new TextInputBuilder()
-        .setCustomId('reason')
-        .setLabel('Why are you creating this ticket?')
-        .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder('Describe your issue...')
-        .setRequired(true)
-        .setMaxLength(1000);
-
-      const actionRow = new ActionRowBuilder().addComponents(reasonInput);
-      modal.addComponents(actionRow);
-
-      await interaction.showModal(modal);
+      await interaction.reply({
+        content: 'What can we help you with?',
+        components: [new ActionRowBuilder().addComponents(ticketTypeMenu)],
+        flags: MessageFlags.Ephemeral,
+      });
     } catch (error) {
       logger.error('Error creating ticket modal:', error);
       if (!interaction.replied && !interaction.deferred) {
@@ -150,24 +142,83 @@ const createTicketHandler = {
   }
 };
 
-const createTicketModalHandler = {
-  name: 'create_ticket_modal',
-  async execute(interaction, client) {
+const ticketTypeHandler = {
+  name: 'ticket_type',
+  async execute(interaction) {
     try {
       if (!(await ensureGuildContext(interaction))) return;
+
+      const ticketType = interaction.values[0];
+      const ticketTypeLabels = {
+        purchase: 'Purchase',
+        cashout: 'Cashout',
+        middleman: 'Middleman',
+        preorder: 'Preorder',
+        support: 'Support',
+      };
+      const label = ticketTypeLabels[ticketType];
+      if (!label) {
+        await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'Please choose a valid ticket type.' });
+        return;
+      }
+
+      const modal = new ModalBuilder()
+        .setCustomId(`create_ticket_modal:${ticketType}`)
+        .setTitle(`Create ${label} Ticket`);
+      const reasonInput = new TextInputBuilder()
+        .setCustomId('reason')
+        .setLabel(`Tell us about your ${label.toLowerCase()} request`)
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder(`Provide the details for your ${label.toLowerCase()} request...`)
+        .setRequired(true)
+        .setMaxLength(1000);
+
+      modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+      await interaction.showModal(modal);
+    } catch (error) {
+      logger.error('Error choosing ticket type:', error);
+      if (!interaction.replied && !interaction.deferred) {
+        await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'Could not open the ticket form.' });
+      }
+    }
+  },
+};
+
+const createTicketModalHandler = {
+  name: 'create_ticket_modal',
+  async execute(interaction, client, args = []) {
+    try {
+      if (!(await ensureGuildContext(interaction))) return;
+
+      const rateLimitKey = `${interaction.user.id}:create_ticket`;
+      const allowed = await checkRateLimit(rateLimitKey, 3, 60000);
+      if (!allowed) {
+        await replyUserError(interaction, { type: ErrorTypes.RATE_LIMIT, message: 'You are creating tickets too quickly. Please wait a minute and try again.' });
+        return;
+      }
+
+      const config = await getGuildConfig(client, interaction.guildId);
+      const maxTicketsPerUser = config.maxTicketsPerUser || 3;
+      const currentTicketCount = await getUserTicketCount(interaction.guildId, interaction.user.id);
+      if (currentTicketCount >= maxTicketsPerUser) {
+        await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: `You have reached the maximum number of open tickets (${maxTicketsPerUser}).\n\nPlease close your existing tickets before creating a new one.\n\n**Current Tickets:** ${currentTicketCount}/${maxTicketsPerUser}` });
+        return;
+      }
 
       const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
       if (!deferSuccess) return;
       
+      const ticketType = args[0] || 'support';
       const reason = interaction.fields.getTextInputValue('reason');
-      const config = await getGuildConfig(client, interaction.guildId);
       const categoryId = config.ticketCategoryId || null;
       
       const { channel } = await createTicket(
         interaction.guild,
         interaction.member,
         categoryId,
-        reason
+        reason,
+        'none',
+        ticketType
       );
       await interaction.editReply({
         embeds: [successEmbed(
@@ -254,7 +305,7 @@ const claimTicketHandler = {
       if (!deferSuccess) return;
       
       await claimTicket(interaction.channel, interaction.user);
-      await interaction.editReply({ embeds: [successEmbed('Ticket Claimed', 'You have claimed this ticket.')] });
+      await interaction.editReply({ embeds: [successEmbed('Ticket Claimed', 'You are now the seller for this ticket.')] });
     } catch (error) {
       logger.error('Error claiming ticket:', error);
       if (!interaction.replied && !interaction.deferred) {
@@ -264,6 +315,31 @@ const claimTicketHandler = {
       }
     }
   }
+};
+
+const completeMarketplaceTransactionHandler = {
+  name: 'ticket_complete_transaction',
+  async execute(interaction, client) {
+    try {
+      if (!(await ensureGuildContext(interaction))) return;
+
+      await assertTicketPermission(interaction, client, 'complete marketplace transactions', {}, 2000);
+      const deferSuccess = await InteractionHelper.safeDefer(interaction, { flags: MessageFlags.Ephemeral });
+      if (!deferSuccess) return;
+
+      await completeMarketplaceTransaction(interaction.channel, interaction.user);
+      await interaction.editReply({
+        embeds: [successEmbed('Transaction Complete', 'The buyer has been asked to submit their required rating, written vouch, and image proof before this ticket can be closed.')],
+      });
+    } catch (error) {
+      logger.error('Error completing marketplace transaction:', error);
+      if (!interaction.replied && !interaction.deferred) {
+        await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: error.userMessage || 'Could not complete this transaction.' });
+      } else if (interaction.deferred) {
+        await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: error.userMessage || 'Could not complete this transaction.' });
+      }
+    }
+  },
 };
 
 const priorityTicketHandler = {
@@ -473,10 +549,12 @@ const deleteTicketHandler = {
 
 export default createTicketHandler;
 export { 
+  ticketTypeHandler,
   createTicketModalHandler, 
   closeTicketModalHandler,
   closeTicketHandler, 
   claimTicketHandler, 
+  completeMarketplaceTransactionHandler,
   priorityTicketHandler,
   pinTicketHandler,
   unclaimTicketHandler,
