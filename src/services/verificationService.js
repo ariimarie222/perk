@@ -88,10 +88,73 @@ export async function verifyUser(client, guildId, userId, options = {}) {
             };
         }
 
+        const requiredRoleGroups = guildConfig.verification.requiredRoleGroups || {};
+        const missingRoleGroups = Object.entries(requiredRoleGroups)
+            .filter(([, roleIds]) =>
+                Array.isArray(roleIds)
+                && roleIds.length > 0
+                && !roleIds.some(roleId => member.roles.cache.has(roleId))
+            )
+            .map(([groupName, roleIds]) => ({
+                groupName,
+                roleIds,
+            }));
+
+        if (missingRoleGroups.length > 0) {
+            const groupLabels = {
+                ping: 'ping role',
+                age: 'age role',
+                gender: 'gender role',
+            };
+            const missingDetails = missingRoleGroups
+                .map(({ groupName, roleIds }) =>
+                    `**${groupLabels[groupName] || groupName}:** ${roleIds.map(roleId => `<@&${roleId}>`).join(', ')}`
+                )
+                .join('\n');
+
+            throw createError(
+                'Verification prerequisite roles missing',
+                ErrorTypes.VALIDATION,
+                `Choose at least one role from each required group before verifying.\n\nYou are still missing:\n${missingDetails}`,
+                {
+                    guildId,
+                    userId,
+                    missingRoleGroups: missingRoleGroups.map(({ groupName }) => groupName),
+                    expected: true,
+                }
+            );
+        }
+
+        const unverifiedRoleId = guildConfig.verification.unverifiedRoleId;
+        if (unverifiedRoleId && member.roles.cache.has(unverifiedRoleId)) {
+            const canRemoveUnverifiedRole = await validateBotCanAssignRole(guild, unverifiedRoleId);
+            if (!canRemoveUnverifiedRole) {
+                throw createError(
+                    'Bot cannot remove unverified role',
+                    ErrorTypes.PERMISSION,
+                    "I can't remove the unverified role. Move my highest role above both verification roles and make sure I have **Manage Roles**.",
+                    { guildId, roleId: unverifiedRoleId }
+                );
+            }
+        }
+
         await checkVerificationCooldown(userId, guildId, defaultCooldownMs);
         await trackVerificationAttempt(userId, guildId, defaultMaxAttempts, defaultAttemptWindowMs);
 
         await member.roles.add(verifiedRole.id, `User verified (${source})`);
+        if (unverifiedRoleId && member.roles.cache.has(unverifiedRoleId)) {
+            try {
+                await member.roles.remove(unverifiedRoleId, `User verified (${source})`);
+            } catch (removeError) {
+                await member.roles.remove(verifiedRole.id, 'Verification rollback after unverified role removal failed').catch(() => {});
+                throw createError(
+                    'Failed to remove unverified role',
+                    ErrorTypes.DISCORD_API,
+                    'I could not remove your unverified role. Please ask staff to check my role hierarchy.',
+                    { guildId, userId, roleId: unverifiedRoleId, cause: removeError.message }
+                );
+            }
+        }
 
         logVerificationAction(client, guildId, userId, 'verified', {
             source,
