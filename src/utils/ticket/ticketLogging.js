@@ -156,6 +156,9 @@ async function createTicketLogEmbed(guild, event) {
       if (event.reason) {
         fields.push({ name: 'Reason', value: String(event.reason).slice(0, 1024), inline: false });
       }
+      if (event.metadata?.marketplaceReviewOverridden) {
+        fields.push({ name: 'Marketplace Vouch', value: 'Overridden by staff', inline: true });
+      }
       break;
 
     case 'delete':
