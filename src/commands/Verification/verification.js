@@ -201,6 +201,7 @@ async function handleSetup(interaction, guild, client) {
     });
 
     guildConfig.verification = {
+        ...guildConfig.verification,
         enabled: true,
         channelId: verificationChannel.id,
         messageId: verifyMessage.id,
