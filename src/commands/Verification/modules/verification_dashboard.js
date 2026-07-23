@@ -709,6 +709,7 @@ async function handleRequiredRoleGroup(selectInteraction, rootInteraction, cfg, 
             ...(cfg.requiredRoleGroups || {}),
             [groupName]: roleIds,
         };
+        cfg.roleRequirementsEnabled = true;
         const latestConfig = await getGuildConfig(client, guildId);
         latestConfig.verification = cfg;
         await setGuildConfig(client, guildId, latestConfig);
