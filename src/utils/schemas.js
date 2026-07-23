@@ -45,12 +45,23 @@ const AutoVerifyConfigSchema = z
   })
   .optional();
 
+const VerificationRequiredRoleGroupsSchema = z
+  .object({
+    ping: z.array(z.string()).max(25).default([]),
+    age: z.array(z.string()).max(25).default([]),
+    gender: z.array(z.string()).max(25).default([]),
+  })
+  .optional();
+
 const VerificationConfigSchema = z
   .object({
     enabled: z.boolean().default(false),
     channelId: z.string().nullable().optional(),
     messageId: z.string().nullable().optional(),
     roleId: z.string().optional(),
+    unverifiedRoleId: z.string().nullable().optional(),
+    requiredRoleGroups: VerificationRequiredRoleGroupsSchema,
+    roleRequirementsEnabled: z.boolean().default(false),
     message: z.string().optional(),
     buttonText: z.string().default('Verify'),
     autoVerify: AutoVerifyConfigSchema

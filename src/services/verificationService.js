@@ -89,6 +89,25 @@ export async function verifyUser(client, guildId, userId, options = {}) {
         }
 
         const requiredRoleGroups = guildConfig.verification.requiredRoleGroups || {};
+        if (guildConfig.verification.roleRequirementsEnabled) {
+            const incompleteGroups = ['ping', 'age', 'gender'].filter(groupName =>
+                !Array.isArray(requiredRoleGroups[groupName])
+                || requiredRoleGroups[groupName].length === 0
+            );
+            if (!guildConfig.verification.unverifiedRoleId || incompleteGroups.length > 0) {
+                throw createError(
+                    'Verification role requirements are incomplete',
+                    ErrorTypes.CONFIGURATION,
+                    'Verification is temporarily unavailable because staff have not finished configuring the unverified, ping, age, and gender role requirements.',
+                    {
+                        guildId,
+                        incompleteGroups,
+                        missingUnverifiedRole: !guildConfig.verification.unverifiedRoleId,
+                    }
+                );
+            }
+        }
+
         const missingRoleGroups = Object.entries(requiredRoleGroups)
             .filter(([, roleIds]) =>
                 Array.isArray(roleIds)
