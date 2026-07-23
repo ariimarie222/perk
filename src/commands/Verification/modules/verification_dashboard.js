@@ -62,6 +62,11 @@ function buildDashboardEmbed(cfg, guild, verifiedUserCount = 0, conflictSummary 
     const msgPreview = `\`${rawMsg.length > 60 ? rawMsg.substring(0, 60) + '…' : rawMsg}\``;
     const buttonText = cfg.buttonText || botConfig.verification.defaultButtonText;
     const panelStatusValue = cfg.channelId ? formatPanelStatusField(panelStatus) : '`Not configured`';
+    const formatRoles = roleIds =>
+        Array.isArray(roleIds) && roleIds.length > 0
+            ? roleIds.map(roleId => `<@&${roleId}>`).join(', ')
+            : '`Not set`';
+    const requiredRoleGroups = cfg.requiredRoleGroups || {};
 
     const embed = new EmbedBuilder()
         .setTitle('✅ Verification System Dashboard')
@@ -76,6 +81,10 @@ function buildDashboardEmbed(cfg, guild, verifiedUserCount = 0, conflictSummary 
             { name: 'Verified Users', value: `${verifiedUserCount} users`, inline: true },
             { name: '\u200B', value: '\u200B', inline: true },
             { name: 'Verification Message', value: msgPreview, inline: false },
+            { name: 'Unverified Role', value: cfg.unverifiedRoleId ? `<@&${cfg.unverifiedRoleId}>` : '`Not set`', inline: false },
+            { name: 'Required Ping Roles (choose one)', value: formatRoles(requiredRoleGroups.ping), inline: false },
+            { name: 'Required Age Roles (choose one)', value: formatRoles(requiredRoleGroups.age), inline: false },
+            { name: 'Required Gender Roles (choose one)', value: formatRoles(requiredRoleGroups.gender), inline: false },
         );
 
     if (conflictSummary) {
@@ -112,6 +121,26 @@ function buildSelectMenu(guildId) {
                 .setDescription('Change the label on the verify button')
                 .setValue('button_text')
                 .setEmoji('🔘'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Set Unverified Role')
+                .setDescription('Role removed after successful verification')
+                .setValue('unverified_role')
+                .setEmoji('🔓'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Set Required Ping Roles')
+                .setDescription('User must have at least one selected ping role')
+                .setValue('required_ping_roles')
+                .setEmoji('🔔'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Set Required Age Roles')
+                .setDescription('User must have at least one selected age role')
+                .setValue('required_age_roles')
+                .setEmoji('🎂'),
+            new StringSelectMenuOptionBuilder()
+                .setLabel('Set Required Gender Roles')
+                .setDescription('User must have at least one selected gender role')
+                .setValue('required_gender_roles')
+                .setEmoji('👤'),
         );
 }
 
@@ -303,6 +332,18 @@ export default {
                             break;
                         case 'button_text':
                             await handleButtonText(selectInteraction, interaction, cfg, guildId, client);
+                            break;
+                        case 'unverified_role':
+                            await handleUnverifiedRole(selectInteraction, interaction, cfg, guildId, client);
+                            break;
+                        case 'required_ping_roles':
+                            await handleRequiredRoleGroup(selectInteraction, interaction, cfg, guildId, client, 'ping');
+                            break;
+                        case 'required_age_roles':
+                            await handleRequiredRoleGroup(selectInteraction, interaction, cfg, guildId, client, 'age');
+                            break;
+                        case 'required_gender_roles':
+                            await handleRequiredRoleGroup(selectInteraction, interaction, cfg, guildId, client, 'gender');
                             break;
                     }
                 },
@@ -565,6 +606,120 @@ async function handleRole(selectInteraction, rootInteraction, cfg, guildId, clie
                 message: 'No role was selected. The setting was not changed.',
             }).catch(() => {});
         }
+    });
+}
+
+async function handleUnverifiedRole(selectInteraction, rootInteraction, cfg, guildId, client) {
+    await selectInteraction.deferUpdate();
+
+    const roleSelect = new RoleSelectMenuBuilder()
+        .setCustomId('verif_cfg_unverified_role')
+        .setPlaceholder('Select the unverified role...')
+        .setMaxValues(1);
+
+    await selectInteraction.followUp({
+        embeds: [
+            new EmbedBuilder()
+                .setTitle('Set Unverified Role')
+                .setDescription('Select the role that will be removed after a user passes verification.')
+                .setColor(getColor('info')),
+        ],
+        components: [new ActionRowBuilder().addComponents(roleSelect)],
+        flags: MessageFlags.Ephemeral,
+    });
+
+    const collector = rootInteraction.channel.createMessageComponentCollector({
+        componentType: ComponentType.RoleSelect,
+        filter: i => i.user.id === selectInteraction.user.id && i.customId === 'verif_cfg_unverified_role',
+        time: 60_000,
+        max: 1,
+    });
+
+    collector.on('collect', async roleInteraction => {
+        await roleInteraction.deferUpdate();
+        const role = roleInteraction.roles.first();
+        const botMember = rootInteraction.guild.members.me;
+
+        if (role.id === rootInteraction.guild.id || role.managed) {
+            await replyUserError(roleInteraction, {
+                type: ErrorTypes.VALIDATION,
+                message: 'Please choose a normal role, not @everyone or a bot-managed role.',
+            });
+            return;
+        }
+        if (role.position >= botMember.roles.highest.position) {
+            await replyUserError(roleInteraction, {
+                type: ErrorTypes.PERMISSION,
+                message: 'The unverified role must be below my highest role.',
+            });
+            return;
+        }
+
+        cfg.unverifiedRoleId = role.id;
+        const latestConfig = await getGuildConfig(client, guildId);
+        latestConfig.verification = cfg;
+        await setGuildConfig(client, guildId, latestConfig);
+        await roleInteraction.followUp({
+            embeds: [successEmbed('Unverified Role Updated', `${role} will now be removed after successful verification.`)],
+            flags: MessageFlags.Ephemeral,
+        });
+        await refreshDashboard(rootInteraction, cfg, guildId, client);
+    });
+}
+
+async function handleRequiredRoleGroup(selectInteraction, rootInteraction, cfg, guildId, client, groupName) {
+    await selectInteraction.deferUpdate();
+
+    const labels = {
+        ping: 'Ping',
+        age: 'Age',
+        gender: 'Gender',
+    };
+    const label = labels[groupName] || groupName;
+    const roleSelect = new RoleSelectMenuBuilder()
+        .setCustomId(`verif_cfg_required_${groupName}`)
+        .setPlaceholder(`Select valid ${label.toLowerCase()} roles...`)
+        .setMinValues(1)
+        .setMaxValues(groupName === 'ping' ? 3 : 10);
+
+    await selectInteraction.followUp({
+        embeds: [
+            new EmbedBuilder()
+                .setTitle(`Set Required ${label} Roles`)
+                .setDescription(`Select every valid ${label.toLowerCase()} role. A user must have at least one of the selected roles to verify.`)
+                .setColor(getColor('info')),
+        ],
+        components: [new ActionRowBuilder().addComponents(roleSelect)],
+        flags: MessageFlags.Ephemeral,
+    });
+
+    const collector = rootInteraction.channel.createMessageComponentCollector({
+        componentType: ComponentType.RoleSelect,
+        filter: i =>
+            i.user.id === selectInteraction.user.id
+            && i.customId === `verif_cfg_required_${groupName}`,
+        time: 60_000,
+        max: 1,
+    });
+
+    collector.on('collect', async roleInteraction => {
+        await roleInteraction.deferUpdate();
+        const roleIds = [...roleInteraction.roles.keys()];
+        cfg.requiredRoleGroups = {
+            ...(cfg.requiredRoleGroups || {}),
+            [groupName]: roleIds,
+        };
+        const latestConfig = await getGuildConfig(client, guildId);
+        latestConfig.verification = cfg;
+        await setGuildConfig(client, guildId, latestConfig);
+        await roleInteraction.followUp({
+            embeds: [successEmbed(
+                `${label} Roles Updated`,
+                `Users must have at least one of: ${roleIds.map(roleId => `<@&${roleId}>`).join(', ')}`,
+            )],
+            flags: MessageFlags.Ephemeral,
+        });
+        await refreshDashboard(rootInteraction, cfg, guildId, client);
     });
 }
 
