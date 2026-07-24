@@ -52,7 +52,6 @@ test('central theme brands legacy embeds while preserving custom colors', () => 
 
 test('payment details are absent publicly and ephemeral when revealed', async () => {
   resetDatabase();
-  await updatePaymentProfile('guild', 'arii-josi', { enabled: true }, 'staff');
   await upsertPaymentMethod('guild', 'arii-josi', {
     methodKey: 'cashapp',
     type: 'cashapp',
@@ -61,6 +60,7 @@ test('payment details are absent publicly and ephemeral when revealed', async ()
     enabled: true,
   }, 'staff');
   const profile = await getPaymentProfile('guild', 'arii-josi');
+  assert.equal(profile.enabled, true);
   const publicPayload = JSON.stringify({
     embed: buildPaymentEmbed(profile).toJSON(),
     components: buildPaymentComponents(profile).map(row => row.toJSON()),
@@ -82,6 +82,39 @@ test('payment details are absent publicly and ephemeral when revealed', async ()
   }, {}, ['arii-josi', 'cashapp']);
   assert.equal(response.flags, MessageFlags.Ephemeral);
   assert.equal(JSON.stringify(response).includes('$PrivateHandle'), true);
+});
+
+test('pay publishes the payment menu publicly for customers', async () => {
+  resetDatabase();
+  await upsertPaymentMethod('guild', 'arii-josi', {
+    methodKey: 'cashapp',
+    type: 'cashapp',
+    details: '$PrivateHandle',
+  }, 'staff');
+
+  let response = null;
+  await payCommand.execute({
+    id: 'interaction',
+    createdTimestamp: Date.now(),
+    guildId: 'guild',
+    user: { id: 'staff' },
+    member: {
+      permissions: { has: () => true },
+      roles: { cache: { has: () => false } },
+    },
+    options: { getSubcommand: () => 'arii-josi' },
+    replied: false,
+    deferred: false,
+    reply: async payload => {
+      response = payload;
+      return payload;
+    },
+  }, {});
+
+  assert.equal(response.ephemeral, false);
+  assert.equal(response.flags, undefined);
+  assert.equal(JSON.stringify(response).includes('$PrivateHandle'), false);
+  assert.equal(response.components.length, 1);
 });
 
 test('marketplace permission accepts configured staff and rejects members', () => {
