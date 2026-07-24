@@ -1,4 +1,4 @@
-import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
+import { MessageFlags, SlashCommandBuilder } from 'discord.js';
 import {
   PAYMENT_METHOD_TYPES,
   PAYMENT_PROFILES,
@@ -35,7 +35,6 @@ const data = new SlashCommandBuilder()
   .setName('payment-config')
   .setDescription('Add or remove seller payment information.')
   .setDMPermission(false)
-  .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
   .addSubcommand(sub => sub
     .setName('add')
     .setDescription('Add or replace a seller payment option')
@@ -63,7 +62,7 @@ export default {
   async execute(interaction, config) {
     if (!canManageMarketplace(interaction.member, config)) {
       return InteractionHelper.safeReply(interaction, {
-        embeds: [createErrorEmbed('Only authorized marketplace staff can manage payment profiles.')],
+        embeds: [createErrorEmbed('Only authorized staff or members with the Seller role can manage payment profiles.')],
         flags: MessageFlags.Ephemeral,
       });
     }
