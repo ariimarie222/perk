@@ -93,27 +93,32 @@ export const botConfig = {
   embeds: {
     colors: {
       // Main brand colors.
-      primary: "#336699",
-      secondary: "#2F3136",
+      primary: "#F4A7C1",
+      secondary: "#F8DDE8",
+      general: "#F4A7C1",
+      marketplace: "#F39BBD",
+      important: "#E97AA8",
+      neutral: "#F8DDE8",
+      moderation: "#A83F68",
 
       // Standard status colors for success/error/warning/info messages.
-      success: "#57F287",
-      error: "#ED4245",
-      warning: "#FEE75C",
-      info: "#3498DB",
+      success: "#F7B2CC",
+      error: "#C94F76",
+      warning: "#F29A8A",
+      info: "#E97AA8",
 
       // Neutral utility colors.
-      light: "#FFFFFF",
-      dark: "#202225",
-      gray: "#99AAB5",
+      light: "#F8DDE8",
+      dark: "#A83F68",
+      gray: "#E9B8CA",
 
       // Discord-style palette shortcuts.
-      blurple: "#5865F2",
-      green: "#57F287",
-      yellow: "#FEE75C",
-      fuchsia: "#EB459E",
-      red: "#ED4245",
-      black: "#000000",
+      blurple: "#E97AA8",
+      green: "#F7B2CC",
+      yellow: "#F29A8A",
+      fuchsia: "#F39BBD",
+      red: "#C94F76",
+      black: "#A83F68",
 
       // Feature-specific colors.
       giveaway: {
