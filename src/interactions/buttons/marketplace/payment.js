@@ -5,6 +5,21 @@ import { createErrorEmbed, createMarketplaceEmbed } from '../../../utils/embeds.
 import { InteractionHelper } from '../../../utils/interactionHelper.js';
 import { logger } from '../../../utils/logger.js';
 
+function normalizeBreaks(value) {
+  return String(value || '').replace(/\\n/g, '\n').trim();
+}
+
+export function formatPaymentDetails(value) {
+  return normalizeBreaks(value)
+    .replace(/\s+(?=\d+\.\s+https?:\/\/)/gi, '\n')
+    .replace(/https?:\/\/[^\s<>]+/gi, url => `<${url}>`);
+}
+
+export function formatPaymentNotes(value) {
+  return normalizeBreaks(value)
+    .replace(/\s+(?=\$\d+(?:-\d+)?\+?\s*[-–—])/g, '\n');
+}
+
 export default {
   name: 'perk_payment',
 
@@ -31,8 +46,8 @@ export default {
         createMarketplaceEmbed({
           title: `💗 ${method.label}`,
           description:
-            `\`\`\`\n${method.details}\n\`\`\``
-            + `${method.notes ? `\n${method.notes}\n` : '\n'}`
+            `**Payment details**\n${formatPaymentDetails(method.details)}`
+            + `${method.notes ? `\n\n**Payment notes**\n${formatPaymentNotes(method.notes)}\n` : '\n'}`
             + '\nPlease verify the payment username and payment amount with the seller before sending.',
         }),
       ],
