@@ -201,7 +201,7 @@ export async function findMarketplaceVouch(guildId, vouchId) {
         proofUrl: review.image?.url,
         submittedAt: review.submittedAt,
         transactionReference: ticket.id || ticket.channelId,
-        ticketChannelId: ticket.channelId,
+        ticketChannelId: ticket.id || ticket.channelId,
         vouchMessageId: review.vouchMessageId,
         vouchChannelId: review.vouchChannelId,
         source: 'ticket',
@@ -224,16 +224,18 @@ export async function listMarketplaceVouches(guildId) {
 
 export async function appendMarketplaceVouchAudit(guildId, entry) {
     if (!db.initialized) await db.initialize();
-    const key = getMarketplaceVouchAuditKey(guildId);
-    const current = await db.get(key, []);
-    const entries = Array.isArray(current) ? current : [];
-    entries.push({
-        ...entry,
-        guildId,
-        timestamp: entry.timestamp || new Date().toISOString(),
+    return Mutex.runExclusive(`marketplace-vouch-audit:${guildId}`, async () => {
+        const key = getMarketplaceVouchAuditKey(guildId);
+        const current = await db.get(key, []);
+        const entries = Array.isArray(current) ? current : [];
+        entries.push({
+            ...entry,
+            guildId,
+            timestamp: entry.timestamp || new Date().toISOString(),
+        });
+        await db.set(key, entries.slice(-2000));
+        return entries.at(-1);
     });
-    await db.set(key, entries.slice(-2000));
-    return entries.at(-1);
 }
 
 async function listGuildTickets(guildId) {
