@@ -6,6 +6,7 @@ import payCommand, {
   buildPaymentEmbed,
   canManageMarketplace,
 } from '../src/commands/Economy/pay.js';
+import paymentConfigCommand from '../src/commands/Ticket/payment-config.js';
 import paymentButton, {
   formatPaymentDetails,
   formatPaymentNotes,
@@ -39,6 +40,22 @@ test('pay exposes exactly the five approved profile subcommands', () => {
     command.options.map(option => option.name),
     ['arii-josi', 'burhan', 'maj', 'flix', 'cici'],
   );
+});
+
+test('payment configuration exposes simple add and remove commands', () => {
+  const command = paymentConfigCommand.data.toJSON();
+  assert.deepEqual(command.options.map(option => option.name), ['add', 'remove']);
+  assert.deepEqual(
+    command.options[0].options.map(option => option.name),
+    ['seller', 'payment_type', 'payment_info', 'notes'],
+  );
+  assert.equal(
+    command.options[0].options.find(option => option.name === 'payment_type')
+      .choices.some(choice => choice.value === 'crypto'),
+    true,
+  );
+  assert.equal(JSON.stringify(command).includes('custom'), false);
+  assert.equal(JSON.stringify(command).includes('method_key'), false);
 });
 
 test('central theme brands legacy embeds while preserving custom colors', () => {
@@ -91,6 +108,10 @@ test('payment links are clickable and payment notes are split into lines', () =>
   assert.equal(
     formatPaymentDetails('1. https://cash.app/$first 2. https://cash.app/$second'),
     '1. <https://cash.app/$first>\n2. <https://cash.app/$second>',
+  );
+  assert.equal(
+    formatPaymentDetails('0x123456789abcdef', 'crypto'),
+    '```\n0x123456789abcdef\n```',
   );
   assert.equal(
     formatPaymentNotes('$1-5 - twix $5-15 - Mc Donald’s $15-50+ - sushi $50-100 - seafood'),
