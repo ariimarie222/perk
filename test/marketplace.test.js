@@ -6,7 +6,10 @@ import payCommand, {
   buildPaymentEmbed,
   canManageMarketplace,
 } from '../src/commands/Economy/pay.js';
-import paymentButton from '../src/interactions/buttons/marketplace/payment.js';
+import paymentButton, {
+  formatPaymentDetails,
+  formatPaymentNotes,
+} from '../src/interactions/buttons/marketplace/payment.js';
 import { MemoryStorage } from '../src/utils/memoryStorage.js';
 import { db } from '../src/utils/database/wrapper.js';
 import {
@@ -82,6 +85,21 @@ test('payment details are absent publicly and ephemeral when revealed', async ()
   }, {}, ['arii-josi', 'cashapp']);
   assert.equal(response.flags, MessageFlags.Ephemeral);
   assert.equal(JSON.stringify(response).includes('$PrivateHandle'), true);
+});
+
+test('payment links are clickable and payment notes are split into lines', () => {
+  assert.equal(
+    formatPaymentDetails('1. https://cash.app/$first 2. https://cash.app/$second'),
+    '1. <https://cash.app/$first>\n2. <https://cash.app/$second>',
+  );
+  assert.equal(
+    formatPaymentNotes('$1-5 - twix $5-15 - Mc Donald’s $15-50+ - sushi $50-100 - seafood'),
+    '$1-5 - twix\n$5-15 - Mc Donald’s\n$15-50+ - sushi\n$50-100 - seafood',
+  );
+  assert.equal(
+    formatPaymentNotes('first line\\nsecond line'),
+    'first line\nsecond line',
+  );
 });
 
 test('pay publishes the payment menu publicly for customers', async () => {
