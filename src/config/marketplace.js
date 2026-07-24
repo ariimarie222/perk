@@ -21,7 +21,7 @@ export const PAYMENT_METHOD_TYPES = Object.freeze({
   paypal: 'PayPal',
   venmo: 'Venmo',
   zelle: 'Zelle',
-  custom: 'Custom',
+  crypto: 'Crypto',
 });
 
 export function isPaymentProfileKey(profileKey) {
