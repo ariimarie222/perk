@@ -113,7 +113,15 @@ export const getUserTicketCount = wrapServiceBoundary(async function getUserTick
   context: {},
 });
 
-export async function createTicket(guild, member, categoryId, reason = 'No reason provided', priority = 'none', serviceType = 'support') {
+export async function createTicket(
+  guild,
+  member,
+  categoryId,
+  reason = 'No reason provided',
+  priority = 'none',
+  serviceType = 'support',
+  requestedSellerId = 'any',
+) {
   try {
     const config = await getGuildConfig(guild.client, guild.id);
     const ticketConfig = config.tickets || {};
@@ -202,6 +210,10 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
       claimedBy: null,
       sellerId: null,
       serviceType: Object.hasOwn(SERVICE_TYPE_LABELS, serviceType) ? serviceType : 'support',
+      requestedSellerId:
+        requestedSellerId && requestedSellerId !== 'any'
+          ? requestedSellerId
+          : null,
       priority: priority || 'none',
       reason,
     };
@@ -219,6 +231,11 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
         { name: 'Service Type', value: serviceTypeLabel, inline: true },
         { name: 'Claimed By', value: 'Not claimed', inline: true },
         { name: 'Seller', value: 'Not claimed', inline: true },
+        {
+          name: 'Requested Seller',
+          value: ticketData.requestedSellerId ? `<@${ticketData.requestedSellerId}>` : 'Any seller',
+          inline: true,
+        },
         { name: 'Created', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
       ],
     });
@@ -240,7 +257,9 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
       );
     }
     
-    const staffMention = config.ticketStaffRoleId ? ` <@&${config.ticketStaffRoleId}>` : '';
+    const staffMention = ticketData.requestedSellerId
+      ? ` <@${ticketData.requestedSellerId}>`
+      : (config.ticketStaffRoleId ? ` <@&${config.ticketStaffRoleId}>` : '');
     const messageContent = `${member.toString()}${staffMention}`;
     
     const ticketMessage = await channel.send({ 
@@ -266,6 +285,7 @@ export async function createTicket(guild, member, categoryId, reason = 'No reaso
           channelId: channel.id,
           categoryName: category?.name || 'Default',
           serviceType: ticketData.serviceType,
+          requestedSellerId: ticketData.requestedSellerId,
         }
       }
     });
@@ -491,6 +511,23 @@ components: []
 export async function claimTicket(channel, claimer) {
   try {
     const ticketData = requireTicket(await getTicketData(channel.guild.id, channel.id), channel);
+
+    if (ticketData.requestedSellerId && ticketData.requestedSellerId !== claimer.id) {
+      const claimerMember = await channel.guild.members.fetch(claimer.id).catch(() => null);
+      if (!claimerMember?.permissions.has(PermissionFlagsBits.ManageChannels)) {
+        ticketUserError(
+          'Ticket reserved for another seller',
+          `This ticket was requested for <@${ticketData.requestedSellerId}>. Only that seller or a manager can claim it.`,
+          ErrorTypes.PERMISSION,
+          {
+            channelId: channel.id,
+            requestedSellerId: ticketData.requestedSellerId,
+            claimerId: claimer.id,
+            operation: 'claimTicket',
+          },
+        );
+      }
+    }
     
     if (ticketData.claimedBy) {
       ticketUserError(
