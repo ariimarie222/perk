@@ -58,6 +58,15 @@ export {
     getTicketCounter,
     incrementTicketCounter,
     getGuildTicketStats,
+    getSellerMarketplaceStats,
+    recordSellerMarketplaceReview,
+    adjustSellerMarketplaceStats,
+    saveMarketplaceVouch,
+    getMarketplaceVouch,
+    findMarketplaceVouch,
+    deleteMarketplaceVouch,
+    listMarketplaceVouches,
+    appendMarketplaceVouchAudit,
 } from './database/tickets.js';
 
 import { db, getFromDb, setInDb } from './database/wrapper.js';
