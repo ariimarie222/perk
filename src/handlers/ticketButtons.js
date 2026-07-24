@@ -7,11 +7,9 @@ import {
   MessageFlags,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
-  UserSelectMenuBuilder,
-  ButtonBuilder,
-  ButtonStyle,
   PermissionFlagsBits,
 } from 'discord.js';
+import { MARKETPLACE_SELLER_IDS, isMarketplaceSellerId } from '../config/marketplace.js';
 import { createEmbed, successEmbed } from '../utils/embeds.js';
 import {
   createTicket,
@@ -203,22 +201,38 @@ const ticketTypeHandler = {
       }
 
       if (ticketType === 'purchase' || ticketType === 'cashout') {
-        const sellerSelect = new UserSelectMenuBuilder()
+        const sellerMembers = await Promise.all(
+          MARKETPLACE_SELLER_IDS.map(sellerId =>
+            interaction.guild.members.fetch(sellerId).catch(() => null)
+          ),
+        );
+        const sellerOptions = sellerMembers
+          .filter(member => member && !member.user.bot)
+          .map(member =>
+            new StringSelectMenuOptionBuilder()
+              .setLabel((member.displayName || member.user.username).slice(0, 100))
+              .setDescription(`@${member.user.username}`.slice(0, 100))
+              .setValue(member.id)
+          );
+        sellerOptions.push(
+          new StringSelectMenuOptionBuilder()
+            .setLabel('Any Seller')
+            .setDescription('Let any available seller claim this ticket')
+            .setValue('any')
+            .setEmoji('🙋'),
+        );
+
+        const sellerSelect = new StringSelectMenuBuilder()
           .setCustomId(`ticket_seller:${ticketType}`)
-          .setPlaceholder('Choose a specific seller...')
+          .setPlaceholder('Choose a seller or select Any Seller...')
           .setMinValues(1)
-          .setMaxValues(1);
-        const anySellerButton = new ButtonBuilder()
-          .setCustomId(`ticket_seller_any:${ticketType}`)
-          .setLabel('Any Seller')
-          .setStyle(ButtonStyle.Secondary)
-          .setEmoji('🙋');
+          .setMaxValues(1)
+          .addOptions(sellerOptions);
 
         await interaction.update({
           content: `Do you want a specific seller for this ${label.toLowerCase()}?`,
           components: [
             new ActionRowBuilder().addComponents(sellerSelect),
-            new ActionRowBuilder().addComponents(anySellerButton),
           ],
         });
         return;
@@ -247,6 +261,17 @@ const ticketSellerHandler = {
       }
 
       const sellerId = interaction.values[0];
+      if (sellerId === 'any') {
+        await openCreateTicketModal(interaction, ticketType, 'any');
+        return;
+      }
+      if (!isMarketplaceSellerId(sellerId)) {
+        await replyUserError(interaction, {
+          type: ErrorTypes.VALIDATION,
+          message: 'Please select a seller from the official marketplace seller list.',
+        });
+        return;
+      }
       const sellerMember = await interaction.guild.members.fetch(sellerId).catch(() => null);
       if (!sellerMember || sellerMember.user.bot) {
         await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'Please select a valid staff seller.' });
