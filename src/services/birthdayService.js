@@ -4,6 +4,7 @@ import { getGuildConfig } from './config/guildConfig.js';
 import { getGuildBirthdays, setBirthday as dbSetBirthday, deleteBirthday as dbDeleteBirthday, getMonthName, getBirthdayTrackingKey } from '../utils/database.js';
 import { logger } from '../utils/logger.js';
 import { TitanBotError, ErrorTypes } from '../utils/errorHandler.js';
+import { createPerkEmbed } from '../utils/embeds.js';
 
 export function validateBirthday(month, day) {
   
@@ -343,13 +344,13 @@ export async function checkBirthdays(client) {
         const mentionList = birthdayMembers.map(m => m.toString()).join(', ');
         
         await channel.send({
-          embeds: [{
+          embeds: [createPerkEmbed({
             title: '🎉 Happy Birthday! 🎂',
             description: `A very happy birthday to ${mentionList}! Wishing you an amazing day! 🎈`,
-            color: 0xff69b4,
-            footer: { text: 'Birthday Bot' },
-            timestamp: new Date()
-          }]
+            color: 'general',
+            footer: { text: 'Perk Birthday Celebrations' },
+            timestamp: new Date(),
+          })]
         });
       }
     } catch (error) {

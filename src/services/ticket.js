@@ -12,13 +12,14 @@ import {
 import { buildStandardLogEmbed, formatLogLine } from '../utils/logging/logEmbeds.js';
 import { getGuildConfig } from './config/guildConfig.js';
 import { getTicketData, saveTicketData, deleteTicketData, getOpenTicketCountForUser, incrementTicketCounter } from '../utils/database.js';
-import { recordSellerMarketplaceReview } from '../utils/database/tickets.js';
+import { recordSellerMarketplaceReview, saveMarketplaceVouch } from '../utils/database/tickets.js';
 import { logger } from '../utils/logger.js';
 import { createEmbed, errorEmbed } from '../utils/embeds.js';
 import { logTicketEvent } from '../utils/ticket/ticketLogging.js';
 import { createError, ErrorTypes } from '../utils/errorHandler.js';
 import { ensureTypedServiceError, wrapServiceBoundary } from '../utils/serviceErrorBoundary.js';
 import { PRIORITY_MAP } from '../utils/helpers.js';
+import { buildMarketplaceVouchEmbed } from '../utils/marketplaceVouch.js';
 const TICKET_DELETE_DELAY_MS = 3000;
 const TICKET_DELETE_DELAY_SECONDS = Math.floor(TICKET_DELETE_DELAY_MS / 1000);
 const TICKET_SERVICE = 'ticketService';
@@ -752,21 +753,29 @@ export async function submitMarketplaceReview(channel, buyer, { rating, review, 
       ticketUserError('Vouch channel unavailable', 'The configured marketplace vouch channel is unavailable. Please ask staff to check the ticket settings.', ErrorTypes.CONFIGURATION, { channelId: channel.id, operation: 'submitMarketplaceReview' });
     }
 
-    const serviceTypeLabel = getServiceTypeLabel(ticketData.serviceType);
     const submittedAt = new Date().toISOString();
-    const vouchEmbed = new EmbedBuilder()
-      .setTitle('⭐ New Marketplace Vouch')
-      .setColor('#F1C40F')
-      .addFields(
-        { name: 'Seller', value: `<@${ticketData.sellerId}>`, inline: true },
-        { name: 'Buyer', value: `<@${ticketData.userId}>`, inline: true },
-        { name: 'Service', value: serviceTypeLabel, inline: true },
-        { name: 'Rating', value: '⭐'.repeat(rating), inline: true },
-        { name: 'Review', value: review.slice(0, 1024), inline: false },
-      )
-      .setImage(proofAttachment.url)
-      .setTimestamp(new Date(submittedAt));
-    const vouchMessage = await vouchChannel.send({ embeds: [vouchEmbed] });
+    const pendingVouch = {
+      sellerId: ticketData.sellerId,
+      buyerId: ticketData.userId,
+      serviceType: ticketData.serviceType,
+      rating,
+      review,
+      proofUrl: proofAttachment.url,
+      transactionReference: ticketData.id || channel.id,
+      ticketChannelId: channel.id,
+      submittedAt,
+      source: 'ticket',
+    };
+    const vouchMessage = await vouchChannel.send({ embeds: [buildMarketplaceVouchEmbed(pendingVouch)] });
+    const vouchRecord = await saveMarketplaceVouch(channel.guild.id, {
+      ...pendingVouch,
+      id: vouchMessage.id,
+      guildId: channel.guild.id,
+      vouchMessageId: vouchMessage.id,
+      vouchChannelId: vouchChannel.id,
+      messageUrl: vouchMessage.url,
+    });
+    await vouchMessage.edit({ embeds: [buildMarketplaceVouchEmbed(vouchRecord)] }).catch(() => {});
 
     ticketData.marketplaceReview = {
       rating,

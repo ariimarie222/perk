@@ -250,7 +250,16 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
     validateCommands(commands);
     logger.info('Command validation passed');
 
-    const commandsToRegister = prepareCommandsForRegistration(commands);
+    const serverCommandNames = new Set(['pay', 'payment-config', 'vouch', 'vouch-admin']);
+    const serverCommands = commands.filter(command => serverCommandNames.has(command.name));
+    const connectedGuildIds = client.guilds?.cache ? [...client.guilds.cache.keys()] : [];
+    const marketplaceGuildId = process.env.GUILD_ID
+        || botConfig.commands?.testGuildId
+        || (connectedGuildIds.length === 1 ? connectedGuildIds[0] : null);
+    const globalCommands = serverCommands.length > 0 && marketplaceGuildId
+        ? commands.filter(command => !serverCommandNames.has(command.name))
+        : commands;
+    const commandsToRegister = prepareCommandsForRegistration(globalCommands);
 
     if (botConfig.commands?.deleteCommands) {
         logger.info('Clearing existing global commands before registration...');
@@ -261,6 +270,26 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
     await client.rest.put(`/applications/${clientId}/commands`, { body: commandsToRegister });
     logger.info(`Successfully registered ${commandsToRegister.length} global commands`);
     logger.info('Global commands may take up to an hour to appear in all servers on first deploy');
+
+    if (serverCommands.length > 0 && marketplaceGuildId) {
+        const guildCommandsPath = `/applications/${clientId}/guilds/${marketplaceGuildId}/commands`;
+        const existingGuildCommands = await client.rest.get(guildCommandsPath);
+        const existingByName = new Map(
+            (Array.isArray(existingGuildCommands) ? existingGuildCommands : [])
+                .map(command => [command.name, command]),
+        );
+
+        for (const command of serverCommands) {
+            const existing = existingByName.get(command.name);
+            if (existing) {
+                await client.rest.patch(`${guildCommandsPath}/${existing.id}`, { body: command });
+                logger.info(`Updated server-specific /${command.name} command in guild ${marketplaceGuildId}`);
+            } else {
+                await client.rest.post(guildCommandsPath, { body: command });
+                logger.info(`Created server-specific /${command.name} command in guild ${marketplaceGuildId}`);
+            }
+        }
+    }
 }
 
 export async function registerCommands(client, options = {}) {

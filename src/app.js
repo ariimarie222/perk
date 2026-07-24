@@ -1,4 +1,5 @@
 ﻿import 'dotenv/config';
+import './utils/embeds.js';
 import { Client, Collection, GatewayIntentBits } from 'discord.js';
 import { REST } from '@discordjs/rest';
 import express from 'express';

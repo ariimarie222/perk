@@ -20,6 +20,22 @@ export function getSellerMarketplaceStatsKey(guildId, sellerId) {
     return `guild:${guildId}:marketplace:seller:${sellerId}:stats`;
 }
 
+export function getMarketplacePaymentProfilesKey(guildId) {
+    return `guild:${guildId}:marketplace:payment-profiles`;
+}
+
+export function getMarketplaceVouchKey(guildId, vouchId) {
+    return `guild:${guildId}:marketplace:vouch:${vouchId}`;
+}
+
+export function getMarketplaceVouchesPrefix(guildId) {
+    return `guild:${guildId}:marketplace:vouch:`;
+}
+
+export function getMarketplaceVouchAuditKey(guildId) {
+    return `guild:${guildId}:marketplace:vouch-audit`;
+}
+
 export function getInviteTrackingKey(guildId) {
     return `guild:${guildId}:invites`;
 }

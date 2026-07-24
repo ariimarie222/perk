@@ -1,0 +1,42 @@
+import { MessageFlags } from 'discord.js';
+import { PAYMENT_PROFILES } from '../../../config/marketplace.js';
+import { getPaymentProfile } from '../../../services/marketplacePaymentService.js';
+import { createErrorEmbed, createMarketplaceEmbed } from '../../../utils/embeds.js';
+import { InteractionHelper } from '../../../utils/interactionHelper.js';
+import { logger } from '../../../utils/logger.js';
+
+export default {
+  name: 'perk_payment',
+
+  async execute(interaction, client, [profileKey, methodKey]) {
+    const profile = await getPaymentProfile(interaction.guildId, profileKey);
+    const method = profile?.methods?.[methodKey];
+
+    if (!PAYMENT_PROFILES[profileKey] || !profile?.enabled || !method?.enabled || !method.details) {
+      return InteractionHelper.safeReply(interaction, {
+        embeds: [createErrorEmbed('That payment method is no longer available. Please ask the seller for an updated payment menu.')],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    logger.info('Private marketplace payment method viewed', {
+      guildId: interaction.guildId,
+      userId: interaction.user.id,
+      profileKey,
+      methodKey,
+    });
+
+    return InteractionHelper.safeReply(interaction, {
+      embeds: [
+        createMarketplaceEmbed({
+          title: `💗 ${method.label}`,
+          description:
+            `\`\`\`\n${method.details}\n\`\`\``
+            + `${method.notes ? `\n${method.notes}\n` : '\n'}`
+            + '\nPlease verify the payment username and payment amount with the seller before sending.',
+        }),
+      ],
+      flags: MessageFlags.Ephemeral,
+    });
+  },
+};
