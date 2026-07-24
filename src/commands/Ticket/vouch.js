@@ -4,6 +4,7 @@ import {
     PermissionFlagsBits,
     SlashCommandBuilder,
 } from 'discord.js';
+import { MARKETPLACE_SELLER_IDS, isMarketplaceSellerId } from '../../config/marketplace.js';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
 import { recordSellerMarketplaceReview } from '../../utils/database/tickets.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
@@ -27,11 +28,12 @@ export default {
         .setName('vouch')
         .setDescription('Submit a marketplace vouch for a transaction completed outside a ticket.')
         .setDMPermission(false)
-        .addUserOption(option =>
+        .addStringOption(option =>
             option
                 .setName('seller')
                 .setDescription('The staff member who completed your transaction.')
-                .setRequired(true),
+                .setRequired(true)
+                .setAutocomplete(true),
         )
         .addStringOption(option =>
             option
@@ -74,11 +76,26 @@ export default {
         });
         if (!deferred) return;
 
-        const seller = interaction.options.getUser('seller', true);
+        const sellerId = interaction.options.getString('seller', true);
         const serviceType = interaction.options.getString('service', true);
         const rating = interaction.options.getInteger('rating', true);
         const review = interaction.options.getString('review', true).trim();
         const proof = interaction.options.getAttachment('proof', true);
+
+        if (!isMarketplaceSellerId(sellerId)) {
+            return await replyUserError(interaction, {
+                type: ErrorTypes.VALIDATION,
+                message: 'Please select a seller from the official marketplace seller list.',
+            });
+        }
+
+        const seller = await client.users.fetch(sellerId).catch(() => null);
+        if (!seller) {
+            return await replyUserError(interaction, {
+                type: ErrorTypes.VALIDATION,
+                message: 'That marketplace seller is currently unavailable.',
+            });
+        }
 
         if (seller.id === interaction.user.id) {
             return await replyUserError(interaction, {
@@ -175,5 +192,24 @@ export default {
                     .setColor('#2ECC71'),
             ],
         });
+    },
+
+    async autocomplete(interaction) {
+        const focused = interaction.options.getFocused().toLowerCase();
+        const members = await Promise.all(
+            MARKETPLACE_SELLER_IDS.map(sellerId =>
+                interaction.guild.members.fetch(sellerId).catch(() => null)
+            ),
+        );
+        const choices = members
+            .filter(Boolean)
+            .map(member => ({
+                name: member.displayName || member.user.username,
+                value: member.id,
+            }))
+            .filter(choice => choice.name.toLowerCase().includes(focused))
+            .slice(0, 25);
+
+        await interaction.respond(choices);
     },
 };

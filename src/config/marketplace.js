@@ -1,0 +1,12 @@
+export const MARKETPLACE_SELLER_IDS = Object.freeze([
+  '900918516855742497',
+  '761610879924961280',
+  '1464305576828997754',
+  '876364511886589962',
+  '484469700164714506',
+  '1417926531577151622',
+]);
+
+export function isMarketplaceSellerId(userId) {
+  return MARKETPLACE_SELLER_IDS.includes(String(userId));
+}
