@@ -1,6 +1,14 @@
 import { logger } from '../logger.js';
+import { Mutex } from '../mutex.js';
 import { db, getFromDb } from './wrapper.js';
-import { getSellerMarketplaceStatsKey, getTicketCounterKey, getTicketKey } from './keys.js';
+import {
+    getMarketplaceVouchAuditKey,
+    getMarketplaceVouchKey,
+    getMarketplaceVouchesPrefix,
+    getSellerMarketplaceStatsKey,
+    getTicketCounterKey,
+    getTicketKey,
+} from './keys.js';
 
 export { getTicketKey, getTicketCounterKey } from './keys.js';
 
@@ -115,20 +123,117 @@ export async function recordSellerMarketplaceReview(guildId, sellerId, rating) {
         await db.initialize();
     }
 
-    const current = await getSellerMarketplaceStats(guildId, sellerId);
-    const totalReviews = Number(current.totalReviews || 0) + 1;
-    const ratingTotal = Number(current.ratingTotal || 0) + Number(rating);
-    const stats = {
-        sellerId,
-        completedTransactions: Number(current.completedTransactions || 0) + 1,
-        totalReviews,
-        ratingTotal,
-        averageRating: Math.round((ratingTotal / totalReviews) * 100) / 100,
-        updatedAt: new Date().toISOString(),
-    };
+    return Mutex.runExclusive(`marketplace-stats:${guildId}:${sellerId}`, async () => {
+        const current = await getSellerMarketplaceStats(guildId, sellerId);
+        const totalReviews = Number(current.totalReviews || 0) + 1;
+        const ratingTotal = Number(current.ratingTotal || 0) + Number(rating);
+        const stats = {
+            sellerId,
+            completedTransactions: Number(current.completedTransactions || 0) + 1,
+            totalReviews,
+            ratingTotal,
+            averageRating: Math.round((ratingTotal / totalReviews) * 100) / 100,
+            updatedAt: new Date().toISOString(),
+        };
 
-    await db.set(getSellerMarketplaceStatsKey(guildId, sellerId), stats);
-    return stats;
+        await db.set(getSellerMarketplaceStatsKey(guildId, sellerId), stats);
+        return stats;
+    });
+}
+
+export async function adjustSellerMarketplaceStats(guildId, sellerId, {
+    transactionDelta = 0,
+    reviewDelta = 0,
+    ratingDelta = 0,
+} = {}) {
+    if (!db.initialized) await db.initialize();
+    return Mutex.runExclusive(`marketplace-stats:${guildId}:${sellerId}`, async () => {
+        const current = await getSellerMarketplaceStats(guildId, sellerId);
+        const completedTransactions = Math.max(0, Number(current.completedTransactions || 0) + Number(transactionDelta));
+        const totalReviews = Math.max(0, Number(current.totalReviews || 0) + Number(reviewDelta));
+        const ratingTotal = Math.max(0, Number(current.ratingTotal || 0) + Number(ratingDelta));
+        const stats = {
+            sellerId,
+            completedTransactions,
+            totalReviews,
+            ratingTotal,
+            averageRating: totalReviews > 0 ? Math.round((ratingTotal / totalReviews) * 100) / 100 : null,
+            updatedAt: new Date().toISOString(),
+        };
+        await db.set(getSellerMarketplaceStatsKey(guildId, sellerId), stats);
+        return stats;
+    });
+}
+
+export async function saveMarketplaceVouch(guildId, vouch) {
+    if (!db.initialized) await db.initialize();
+    const id = String(vouch.id || vouch.vouchMessageId || '');
+    if (!id) throw new Error('A vouch ID is required.');
+    const record = { ...vouch, id, guildId, updatedAt: new Date().toISOString() };
+    await db.set(getMarketplaceVouchKey(guildId, id), record);
+    return record;
+}
+
+export async function getMarketplaceVouch(guildId, vouchId) {
+    if (!db.initialized) await db.initialize();
+    return db.get(getMarketplaceVouchKey(guildId, vouchId));
+}
+
+export async function findMarketplaceVouch(guildId, vouchId) {
+    const stored = await getMarketplaceVouch(guildId, vouchId);
+    if (stored) return stored;
+
+    const tickets = await listGuildTickets(guildId);
+    const ticket = tickets.find(item =>
+        String(item?.marketplaceReview?.vouchMessageId || '') === String(vouchId),
+    );
+    if (!ticket?.marketplaceReview) return null;
+
+    const review = ticket.marketplaceReview;
+    return saveMarketplaceVouch(guildId, {
+        id: String(vouchId),
+        guildId,
+        sellerId: review.sellerId || ticket.sellerId,
+        buyerId: review.buyerId || ticket.userId,
+        serviceType: review.serviceType || ticket.serviceType,
+        rating: review.rating,
+        review: review.review,
+        proofUrl: review.image?.url,
+        submittedAt: review.submittedAt,
+        transactionReference: ticket.id || ticket.channelId,
+        ticketChannelId: ticket.channelId,
+        vouchMessageId: review.vouchMessageId,
+        vouchChannelId: review.vouchChannelId,
+        source: 'ticket',
+        importedFromTicket: true,
+    });
+}
+
+export async function deleteMarketplaceVouch(guildId, vouchId) {
+    if (!db.initialized) await db.initialize();
+    await db.delete(getMarketplaceVouchKey(guildId, vouchId));
+}
+
+export async function listMarketplaceVouches(guildId) {
+    if (!db.initialized) await db.initialize();
+    if (typeof db.list !== 'function') return [];
+    const keys = await db.list(getMarketplaceVouchesPrefix(guildId));
+    const records = await Promise.all(keys.map(key => getFromDb(key, null)));
+    return records.filter(Boolean);
+}
+
+export async function appendMarketplaceVouchAudit(guildId, entry) {
+    if (!db.initialized) await db.initialize();
+    const key = getMarketplaceVouchAuditKey(guildId);
+    const current = await db.get(key, []);
+    const entries = Array.isArray(current) ? current : [];
+    entries.push({
+        ...entry,
+        guildId,
+        timestamp: entry.timestamp || new Date().toISOString(),
+    });
+    await db.set(key, entries.slice(-2000));
+    return entries.at(-1);
 }
 
 async function listGuildTickets(guildId) {
