@@ -95,6 +95,9 @@ export default {
         return InteractionHelper.safeReply(interaction, {
             embeds: [buildPaymentEmbed(profile)],
             components,
+            // Keep the menu public so the customer can use it. Individual
+            // payment details remain ephemeral in the button handler.
+            ephemeral: false,
         });
     },
 };
