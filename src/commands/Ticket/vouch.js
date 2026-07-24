@@ -1,22 +1,16 @@
 import {
-    EmbedBuilder,
     MessageFlags,
     PermissionFlagsBits,
     SlashCommandBuilder,
 } from 'discord.js';
 import { MARKETPLACE_SELLER_IDS, isMarketplaceSellerId } from '../../config/marketplace.js';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
-import { recordSellerMarketplaceReview } from '../../utils/database/tickets.js';
+import { recordSellerMarketplaceReview, saveMarketplaceVouch } from '../../utils/database/tickets.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { logger } from '../../utils/logger.js';
-
-const SERVICE_LABELS = Object.freeze({
-    purchase: 'Purchase',
-    cashout: 'Cashout',
-    preorder: 'Preorder',
-    middleman: 'Middleman',
-});
+import { buildMarketplaceVouchEmbed } from '../../utils/marketplaceVouch.js';
+import { createSuccessEmbed } from '../../utils/embeds.js';
 
 function isImageAttachment(attachment) {
     return attachment?.contentType?.startsWith('image/')
@@ -147,22 +141,27 @@ export default {
             }
         }
 
-        const serviceLabel = SERVICE_LABELS[serviceType];
         const submittedAt = new Date();
-        const vouchEmbed = new EmbedBuilder()
-            .setTitle('⭐ New Marketplace Vouch')
-            .setColor('#F1C40F')
-            .addFields(
-                { name: 'Seller', value: `<@${seller.id}>`, inline: true },
-                { name: 'Buyer', value: `<@${interaction.user.id}>`, inline: true },
-                { name: 'Service', value: serviceLabel, inline: true },
-                { name: 'Rating', value: '⭐'.repeat(rating), inline: true },
-                { name: 'Review', value: review.slice(0, 1024), inline: false },
-            )
-            .setImage(proof.url)
-            .setTimestamp(submittedAt);
-
-        const vouchMessage = await vouchChannel.send({ embeds: [vouchEmbed] });
+        const pendingVouch = {
+            sellerId: seller.id,
+            buyerId: interaction.user.id,
+            serviceType,
+            rating,
+            review,
+            proofUrl: proof.url,
+            submittedAt: submittedAt.toISOString(),
+            source: 'direct',
+        };
+        const vouchMessage = await vouchChannel.send({ embeds: [buildMarketplaceVouchEmbed(pendingVouch)] });
+        const vouchRecord = await saveMarketplaceVouch(interaction.guildId, {
+            ...pendingVouch,
+            id: vouchMessage.id,
+            guildId: interaction.guildId,
+            vouchMessageId: vouchMessage.id,
+            vouchChannelId: vouchChannel.id,
+            messageUrl: vouchMessage.url,
+        });
+        await vouchMessage.edit({ embeds: [buildMarketplaceVouchEmbed(vouchRecord)] }).catch(() => {});
         const sellerStats = await recordSellerMarketplaceReview(
             interaction.guildId,
             seller.id,
@@ -181,15 +180,13 @@ export default {
 
         await InteractionHelper.safeEditReply(interaction, {
             embeds: [
-                new EmbedBuilder()
-                    .setTitle('✅ Marketplace Vouch Submitted')
-                    .setDescription(
+                createSuccessEmbed(
+                    '🎀 Your vouch has been submitted!',
                         `Your vouch has been posted in ${vouchChannel}.\n\n`
                         + `Seller stats: **${sellerStats.completedTransactions}** completed transaction(s), `
                         + `**${sellerStats.averageRating}/5** average rating, `
                         + `**${sellerStats.totalReviews}** review(s).`,
-                    )
-                    .setColor('#2ECC71'),
+                    ),
             ],
         });
     },
