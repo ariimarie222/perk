@@ -7,6 +7,10 @@ import {
   MessageFlags,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  UserSelectMenuBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  PermissionFlagsBits,
 } from 'discord.js';
 import { createEmbed, successEmbed } from '../utils/embeds.js';
 import {
@@ -45,6 +49,35 @@ async function ensureGuildContext(interaction) {
   }
 
   return false;
+}
+
+async function openCreateTicketModal(interaction, ticketType, requestedSellerId = 'any') {
+  const ticketTypeLabels = {
+    purchase: 'Purchase',
+    cashout: 'Cashout',
+    middleman: 'Middleman',
+    preorder: 'Preorder',
+    support: 'Support',
+  };
+  const label = ticketTypeLabels[ticketType];
+  if (!label) {
+    await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'Please choose a valid ticket type.' });
+    return;
+  }
+
+  const modal = new ModalBuilder()
+    .setCustomId(`create_ticket_modal:${ticketType}:${requestedSellerId}`)
+    .setTitle(`Create ${label} Ticket`);
+  const reasonInput = new TextInputBuilder()
+    .setCustomId('reason')
+    .setLabel(`Tell us about your ${label.toLowerCase()} request`)
+    .setStyle(TextInputStyle.Paragraph)
+    .setPlaceholder(`Provide the details for your ${label.toLowerCase()} request...`)
+    .setRequired(true)
+    .setMaxLength(1000);
+
+  modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+  await interaction.showModal(modal);
 }
 
 async function assertTicketPermission(interaction, client, actionLabel, options = {}, timeoutMs = 2500) {
@@ -169,21 +202,92 @@ const ticketTypeHandler = {
         return;
       }
 
-      const modal = new ModalBuilder()
-        .setCustomId(`create_ticket_modal:${ticketType}`)
-        .setTitle(`Create ${label} Ticket`);
-      const reasonInput = new TextInputBuilder()
-        .setCustomId('reason')
-        .setLabel(`Tell us about your ${label.toLowerCase()} request`)
-        .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder(`Provide the details for your ${label.toLowerCase()} request...`)
-        .setRequired(true)
-        .setMaxLength(1000);
+      if (ticketType === 'purchase' || ticketType === 'cashout') {
+        const sellerSelect = new UserSelectMenuBuilder()
+          .setCustomId(`ticket_seller:${ticketType}`)
+          .setPlaceholder('Choose a specific seller...')
+          .setMinValues(1)
+          .setMaxValues(1);
+        const anySellerButton = new ButtonBuilder()
+          .setCustomId(`ticket_seller_any:${ticketType}`)
+          .setLabel('Any Seller')
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji('🙋');
 
-      modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
-      await interaction.showModal(modal);
+        await interaction.update({
+          content: `Do you want a specific seller for this ${label.toLowerCase()}?`,
+          components: [
+            new ActionRowBuilder().addComponents(sellerSelect),
+            new ActionRowBuilder().addComponents(anySellerButton),
+          ],
+        });
+        return;
+      }
+
+      await openCreateTicketModal(interaction, ticketType);
     } catch (error) {
       logger.error('Error choosing ticket type:', error);
+      if (!interaction.replied && !interaction.deferred) {
+        await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'Could not open the ticket form.' });
+      }
+    }
+  },
+};
+
+const ticketSellerHandler = {
+  name: 'ticket_seller',
+  async execute(interaction, client, args = []) {
+    try {
+      if (!(await ensureGuildContext(interaction))) return;
+
+      const ticketType = args[0];
+      if (ticketType !== 'purchase' && ticketType !== 'cashout') {
+        await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'This seller selection is invalid.' });
+        return;
+      }
+
+      const sellerId = interaction.values[0];
+      const sellerMember = await interaction.guild.members.fetch(sellerId).catch(() => null);
+      if (!sellerMember || sellerMember.user.bot) {
+        await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'Please select a valid staff seller.' });
+        return;
+      }
+
+      const config = await getGuildConfig(client, interaction.guildId);
+      const isSeller =
+        sellerMember.permissions.has(PermissionFlagsBits.ManageChannels)
+        || Boolean(config.ticketStaffRoleId && sellerMember.roles.cache.has(config.ticketStaffRoleId));
+      if (!isSeller) {
+        await replyUserError(interaction, {
+          type: ErrorTypes.VALIDATION,
+          message: 'That user is not a marketplace seller. Choose someone with the configured Ticket Staff Role, or select **Any Seller**.',
+        });
+        return;
+      }
+
+      await openCreateTicketModal(interaction, ticketType, sellerId);
+    } catch (error) {
+      logger.error('Error choosing requested ticket seller:', error);
+      if (!interaction.replied && !interaction.deferred) {
+        await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'Could not open the ticket form.' });
+      }
+    }
+  },
+};
+
+const ticketSellerAnyHandler = {
+  name: 'ticket_seller_any',
+  async execute(interaction, client, args = []) {
+    try {
+      if (!(await ensureGuildContext(interaction))) return;
+      const ticketType = args[0];
+      if (ticketType !== 'purchase' && ticketType !== 'cashout') {
+        await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'This seller selection is invalid.' });
+        return;
+      }
+      await openCreateTicketModal(interaction, ticketType, 'any');
+    } catch (error) {
+      logger.error('Error choosing any ticket seller:', error);
       if (!interaction.replied && !interaction.deferred) {
         await replyUserError(interaction, { type: ErrorTypes.UNKNOWN, message: 'Could not open the ticket form.' });
       }
@@ -216,6 +320,7 @@ const createTicketModalHandler = {
       if (!deferSuccess) return;
       
       const ticketType = args[0] || 'support';
+      const requestedSellerId = args[1] || 'any';
       const reason = interaction.fields.getTextInputValue('reason');
       const categoryId = config.ticketCategoryId || null;
       
@@ -225,7 +330,8 @@ const createTicketModalHandler = {
         categoryId,
         reason,
         'none',
-        ticketType
+        ticketType,
+        requestedSellerId,
       );
       await interaction.editReply({
         embeds: [successEmbed(
@@ -557,6 +663,8 @@ const deleteTicketHandler = {
 export default createTicketHandler;
 export { 
   ticketTypeHandler,
+  ticketSellerHandler,
+  ticketSellerAnyHandler,
   createTicketModalHandler, 
   closeTicketModalHandler,
   closeTicketHandler, 
