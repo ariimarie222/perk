@@ -6,7 +6,10 @@ import {
     PermissionFlagsBits,
     SlashCommandBuilder,
 } from 'discord.js';
-import { PAYMENT_PROFILES } from '../../config/marketplace.js';
+import {
+    MARKETPLACE_SELLER_ROLE_ID,
+    PAYMENT_PROFILES,
+} from '../../config/marketplace.js';
 import { getPaymentProfile } from '../../services/marketplacePaymentService.js';
 import { createMarketplaceEmbed, createErrorEmbed } from '../../utils/embeds.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
@@ -22,7 +25,8 @@ function addProfileSubcommand(builder, profile) {
 export function canManageMarketplace(member, config) {
     return Boolean(
         member?.permissions?.has(PermissionFlagsBits.ManageChannels)
-        || (config?.ticketStaffRoleId && member?.roles?.cache?.has(config.ticketStaffRoleId)),
+        || (config?.ticketStaffRoleId && member?.roles?.cache?.has(config.ticketStaffRoleId))
+        || member?.roles?.cache?.has(MARKETPLACE_SELLER_ROLE_ID),
     );
 }
 
@@ -57,8 +61,7 @@ export function buildPaymentEmbed(profile) {
 const data = new SlashCommandBuilder()
     .setName('pay')
     .setDescription('Post an approved seller payment profile.')
-    .setDMPermission(false)
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels);
+    .setDMPermission(false);
 
 for (const profile of Object.values(PAYMENT_PROFILES)) {
     addProfileSubcommand(data, profile);
@@ -70,7 +73,7 @@ export default {
     async execute(interaction, config) {
         if (!canManageMarketplace(interaction.member, config)) {
             return InteractionHelper.safeReply(interaction, {
-                embeds: [createErrorEmbed('Only members with the configured Ticket Staff Role can use `/pay`.')],
+                embeds: [createErrorEmbed('Only authorized staff or members with the Seller role can use `/pay`.')],
                 flags: MessageFlags.Ephemeral,
             });
         }
