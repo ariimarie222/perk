@@ -9,7 +9,10 @@ function normalizeBreaks(value) {
   return String(value || '').replace(/\\n/g, '\n').trim();
 }
 
-export function formatPaymentDetails(value) {
+export function formatPaymentDetails(value, type) {
+  if (type === 'crypto') {
+    return `\`\`\`\n${normalizeBreaks(value)}\n\`\`\``;
+  }
   return normalizeBreaks(value)
     .replace(/\s+(?=\d+\.\s+https?:\/\/)/gi, '\n')
     .replace(/https?:\/\/[^\s<>]+/gi, url => `<${url}>`);
@@ -46,7 +49,7 @@ export default {
         createMarketplaceEmbed({
           title: `💗 ${method.label}`,
           description:
-            `**Payment details**\n${formatPaymentDetails(method.details)}`
+            `**Payment details**\n${formatPaymentDetails(method.details, method.type)}`
             + `${method.notes ? `\n\n**Payment notes**\n${formatPaymentNotes(method.notes)}\n` : '\n'}`
             + '\nPlease verify the payment username and payment amount with the seller before sending.',
         }),
