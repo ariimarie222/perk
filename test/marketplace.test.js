@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { EmbedBuilder, MessageFlags, PermissionFlagsBits } from 'discord.js';
+import { EmbedBuilder, MessageFlags } from 'discord.js';
 import payCommand, {
   buildPaymentComponents,
   buildPaymentEmbed,
@@ -25,6 +25,7 @@ import {
   saveMarketplaceVouch,
 } from '../src/utils/database/tickets.js';
 import { PERK_THEME } from '../src/config/perkTheme.js';
+import { MARKETPLACE_SELLER_ROLE_ID } from '../src/config/marketplace.js';
 import '../src/utils/embeds.js';
 
 function resetDatabase() {
@@ -35,7 +36,7 @@ function resetDatabase() {
 
 test('pay exposes exactly the five approved profile subcommands', () => {
   const command = payCommand.data.toJSON();
-  assert.equal(command.default_member_permissions, String(PermissionFlagsBits.ManageChannels));
+  assert.equal(command.default_member_permissions, undefined);
   assert.deepEqual(
     command.options.map(option => option.name),
     ['arii-josi', 'burhan', 'maj', 'flix', 'cici'],
@@ -166,6 +167,10 @@ test('marketplace permission accepts configured staff and rejects members', () =
     permissions: { has: () => false },
     roles: { cache: { has: () => false } },
   }, config), false);
+  assert.equal(canManageMarketplace({
+    permissions: { has: () => false },
+    roles: { cache: { has: id => id === MARKETPLACE_SELLER_ROLE_ID } },
+  }, config), true);
 });
 
 test('vouch transfer and removal deltas keep totals and audit records correct', async () => {
