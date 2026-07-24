@@ -250,7 +250,15 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
     validateCommands(commands);
     logger.info('Command validation passed');
 
-    const commandsToRegister = prepareCommandsForRegistration(commands);
+    const vouchCommand = commands.find(command => command.name === 'vouch') || null;
+    const connectedGuildIds = client.guilds?.cache ? [...client.guilds.cache.keys()] : [];
+    const vouchGuildId = process.env.GUILD_ID
+        || botConfig.commands?.testGuildId
+        || (connectedGuildIds.length === 1 ? connectedGuildIds[0] : null);
+    const globalCommands = vouchCommand && vouchGuildId
+        ? commands.filter(command => command.name !== 'vouch')
+        : commands;
+    const commandsToRegister = prepareCommandsForRegistration(globalCommands);
 
     if (botConfig.commands?.deleteCommands) {
         logger.info('Clearing existing global commands before registration...');
@@ -261,6 +269,24 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
     await client.rest.put(`/applications/${clientId}/commands`, { body: commandsToRegister });
     logger.info(`Successfully registered ${commandsToRegister.length} global commands`);
     logger.info('Global commands may take up to an hour to appear in all servers on first deploy');
+
+    if (vouchCommand && vouchGuildId) {
+        const guildCommandsPath = `/applications/${clientId}/guilds/${vouchGuildId}/commands`;
+        const existingGuildCommands = await client.rest.get(guildCommandsPath);
+        const existingVouch = Array.isArray(existingGuildCommands)
+            ? existingGuildCommands.find(command => command.name === 'vouch')
+            : null;
+
+        if (existingVouch) {
+            await client.rest.patch(`${guildCommandsPath}/${existingVouch.id}`, {
+                body: vouchCommand,
+            });
+            logger.info(`Updated server-specific /vouch command in guild ${vouchGuildId}`);
+        } else {
+            await client.rest.post(guildCommandsPath, { body: vouchCommand });
+            logger.info(`Created server-specific /vouch command in guild ${vouchGuildId}`);
+        }
+    }
 }
 
 export async function registerCommands(client, options = {}) {
