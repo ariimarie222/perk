@@ -36,7 +36,12 @@ function sanitizeProfiles(value) {
     defaults[profileKey] = {
       ...defaults[profileKey],
       enabled: stored.enabled === true,
-      methods: stored.methods && typeof stored.methods === 'object' ? stored.methods : {},
+      methods: stored.methods && typeof stored.methods === 'object'
+        ? Object.fromEntries(
+          Object.entries(stored.methods)
+            .filter(([, method]) => method && isPaymentMethodType(method.type)),
+        )
+        : {},
       updatedAt: stored.updatedAt || null,
       updatedBy: stored.updatedBy || null,
     };
