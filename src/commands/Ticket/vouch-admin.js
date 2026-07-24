@@ -56,11 +56,10 @@ async function updateOriginalMessage(client, vouch, mode = 'edit') {
     : null;
   if (!message) return false;
   if (mode === 'remove') {
-    await message.delete().catch(() => null);
+    return Boolean(await message.delete().catch(() => null));
   } else {
-    await message.edit({ embeds: [buildMarketplaceVouchEmbed(vouch)] }).catch(() => null);
+    return Boolean(await message.edit({ embeds: [buildMarketplaceVouchEmbed(vouch)] }).catch(() => null));
   }
-  return true;
 }
 
 async function updateTicketCopy(guildId, vouch) {
@@ -210,7 +209,7 @@ export default {
       action,
       reason,
       originalSellerId: original.sellerId,
-      newSellerId: updated.sellerId,
+      newSellerId: sellerChanged ? updated.sellerId : null,
       oldRating: original.rating,
       newRating: action === 'remove' ? null : updated.rating,
       oldReview: original.review,
@@ -218,7 +217,7 @@ export default {
       oldProofUrl: original.proofUrl,
       newProofUrl: action === 'remove' ? null : updated.proofUrl,
       vouchId,
-      transactionReference: original.transactionReference,
+      transactionReference: updated.transactionReference,
       messageUrl: getVouchMessageUrl(original),
       originalMessageUpdated: messageUpdated,
     });
