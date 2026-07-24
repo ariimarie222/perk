@@ -261,11 +261,21 @@ export async function createTicket(
       ? ` <@${ticketData.requestedSellerId}>`
       : (config.ticketStaffRoleId ? ` <@&${config.ticketStaffRoleId}>` : '');
     const messageContent = `${member.toString()}${staffMention}`;
+    const allowedMentions = ticketData.requestedSellerId
+      ? {
+          users: [member.id, ticketData.requestedSellerId],
+          roles: [],
+        }
+      : {
+          users: [member.id],
+          roles: config.ticketStaffRoleId ? [config.ticketStaffRoleId] : [],
+        };
     
     const ticketMessage = await channel.send({ 
       content: messageContent,
       embeds: [embed],
-      components: [row] 
+      components: [row],
+      allowedMentions,
     });
 
     await ticketMessage.pin().catch(() => {});
