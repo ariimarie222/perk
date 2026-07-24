@@ -2,8 +2,8 @@
 
 import { EmbedBuilder } from 'discord.js';
 import { getColor, botConfig } from '../config/bot.js';
+import { PERK_THEME, getPerkColor, normalizePerkColor } from '../config/perkTheme.js';
 
-const EMOJI_REGEX = /[\p{Extended_Pictographic}\uFE0F]/gu;
 const EMBED_FOOTER_SYMBOL = Symbol('titanbotFooterText');
 const EMBED_BASE_DESCRIPTION_SYMBOL = Symbol('titanbotBaseDescription');
 
@@ -13,7 +13,6 @@ function sanitizeEmbedText(text = '') {
   }
 
   return text
-    .replace(EMOJI_REGEX, '')
     .replace(/[ \t]+/g, ' ')  // Replace consecutive spaces/tabs with single space
     .replace(/[ \t]\n/g, '\n')  // Remove spaces before newlines
     .replace(/\n[ \t]/g, '\n')  // Remove spaces after newlines
@@ -90,6 +89,28 @@ function isImportantFooter(footerText) {
 const originalSetDescription = EmbedBuilder.prototype.setDescription;
 const originalSetFooter = EmbedBuilder.prototype.setFooter;
 const originalSetTimestamp = EmbedBuilder.prototype.setTimestamp;
+const originalSetColor = EmbedBuilder.prototype.setColor;
+const originalToJSON = EmbedBuilder.prototype.toJSON;
+
+EmbedBuilder.prototype.setColor = function setPerkColor(color) {
+  return originalSetColor.call(this, normalizePerkColor(color));
+};
+
+EmbedBuilder.prototype.toJSON = function toPerkJSON(validationOverride) {
+  if (this.data?.color == null) {
+    originalSetColor.call(this, getPerkColor('general'));
+  } else {
+    const normalized = normalizePerkColor(this.data.color);
+    if (normalized !== this.data.color) originalSetColor.call(this, normalized);
+  }
+  if (!this.data?.footer) {
+    originalSetFooter.call(this, {
+      text: PERK_THEME.footer,
+      ...(PERK_THEME.footerIcon ? { iconURL: PERK_THEME.footerIcon } : {}),
+    });
+  }
+  return originalToJSON.call(this, validationOverride);
+};
 
 EmbedBuilder.prototype.setDescription = function(description = '') {
   const descString = sanitizeEmbedText(description || '');
@@ -99,16 +120,17 @@ EmbedBuilder.prototype.setDescription = function(description = '') {
 
 EmbedBuilder.prototype.setFooter = function(footer) {
   const footerText = sanitizeEmbedText(normalizeFooterText(footer));
-  if (!footerText || !isImportantFooter(footerText)) {
+  if (!footerText) {
     return this;
   }
 
   this[EMBED_FOOTER_SYMBOL] = footerText;
-  return originalSetFooter.call(this, { text: footerText });
+  const iconURL = typeof footer === 'object' ? footer.iconURL : null;
+  return originalSetFooter.call(this, { text: footerText, ...(iconURL ? { iconURL } : {}) });
 };
 
-EmbedBuilder.prototype.setTimestamp = function() {
-  return this;
+EmbedBuilder.prototype.setTimestamp = function(timestamp) {
+  return originalSetTimestamp.call(this, timestamp);
 };
 
 export function createEmbed({
@@ -134,8 +156,7 @@ export function createEmbed({
   }
 
   try {
-    const embedColor = getColor(color) || '#000000';
-    embed.setColor(embedColor);
+    embed.setColor(getColor(color, getPerkColor(color)));
   } catch (error) {
     embed.setColor('#000000');
   }
@@ -175,10 +196,10 @@ export function createEmbed({
     } catch (error) {
       
     }
-  } else if (botConfig.embeds?.footer?.text) {
+  } else {
     const defaultFooter = {
-      text: botConfig.embeds.footer.text,
-      ...(botConfig.embeds.footer.icon ? { iconURL: botConfig.embeds.footer.icon } : {}),
+      text: PERK_THEME.footer,
+      ...(PERK_THEME.footerIcon ? { iconURL: PERK_THEME.footerIcon } : {}),
     };
     embed.setFooter(defaultFooter);
   }
@@ -193,8 +214,8 @@ export function createEmbed({
     } catch (error) {
       
     }
-  } else if (botConfig.embeds?.thumbnail) {
-    embed.setThumbnail(botConfig.embeds.thumbnail);
+  } else if (PERK_THEME.logo || botConfig.embeds?.thumbnail) {
+    embed.setThumbnail(PERK_THEME.logo || botConfig.embeds.thumbnail);
   }
 
   if (image) {
@@ -227,11 +248,11 @@ export function createEmbed({
 }
 
 const NOTIFICATION_DEFAULT_TITLES = {
-  success: 'Success',
-  error: 'Error',
-  info: 'Information',
-  warning: 'Warning',
-  primary: 'Notice',
+  success: '✨ Action completed successfully!',
+  error: '⚠️ Something went wrong',
+  info: '💕 Perk information',
+  warning: '🌷 Please note',
+  primary: '🌸 Perk update',
 };
 
 export const USER_ERROR_TITLES = {
@@ -333,6 +354,41 @@ export function warningEmbed(title, body = '') {
   }
 
   return buildNotificationEmbed(title || 'Warning', body, 'warning');
+}
+
+export function createPerkEmbed(options = {}) {
+  return createEmbed({ ...options, color: options.color || 'general' });
+}
+
+export function createSuccessEmbed(titleOrBody, body = '') {
+  return arguments.length === 1
+    ? createEmbed({ title: '✨ Action completed successfully!', description: titleOrBody, color: 'success' })
+    : createEmbed({ title: titleOrBody, description: body, color: 'success' });
+}
+
+export function createErrorEmbed(titleOrBody, body = '') {
+  return arguments.length === 1
+    ? createEmbed({ title: '⚠️ Something went wrong', description: titleOrBody, color: 'error' })
+    : createEmbed({ title: titleOrBody, description: body, color: 'error' });
+}
+
+export function createWarningEmbed(titleOrBody, body = '') {
+  return arguments.length === 1
+    ? createEmbed({ title: '🌷 Please note', description: titleOrBody, color: 'warning' })
+    : createEmbed({ title: titleOrBody, description: body, color: 'warning' });
+}
+
+export function createInfoEmbed(options = {}) {
+  if (typeof options === 'string') return createEmbed({ title: '💕 Perk information', description: options, color: 'important' });
+  return createEmbed({ ...options, color: options.color || 'important' });
+}
+
+export function createMarketplaceEmbed(options = {}) {
+  return createEmbed({ ...options, color: 'marketplace' });
+}
+
+export function createModerationEmbed(options = {}) {
+  return createEmbed({ ...options, color: 'moderation' });
 }
 
 export function formatUser(user) {
