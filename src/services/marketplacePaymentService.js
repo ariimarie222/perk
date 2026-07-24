@@ -118,7 +118,12 @@ export async function upsertPaymentMethod(guildId, profileKey, {
       updatedBy: staffId,
     },
   };
-  return updatePaymentProfile(guildId, profileKey, { methods }, staffId);
+  return updatePaymentProfile(guildId, profileKey, {
+    methods,
+    // A configured, enabled method makes its profile immediately publishable.
+    // Staff should not need a separate profile-enable step after adding it.
+    enabled: profile.enabled || enabled === true,
+  }, staffId);
 }
 
 export async function removePaymentMethod(guildId, profileKey, methodKey, staffId) {
