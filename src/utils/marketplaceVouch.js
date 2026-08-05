@@ -15,7 +15,11 @@ export function buildMarketplaceVouchEmbed(vouch) {
       { name: 'Seller', value: `<@${vouch.sellerId}>`, inline: true },
       { name: 'Buyer', value: `<@${vouch.buyerId}>`, inline: true },
       { name: 'Service', value: serviceLabel, inline: true },
-      { name: 'Rating', value: '⭐'.repeat(Number(vouch.rating)), inline: true },
+      {
+        name: 'Rating',
+        value: Number(vouch.rating) >= 1 ? '⭐'.repeat(Number(vouch.rating)) : 'Legacy vouch · no rating recorded',
+        inline: true,
+      },
       ...(vouch.transactionReference
         ? [{ name: 'Transaction Reference', value: String(vouch.transactionReference).slice(0, 1024), inline: true }]
         : []),

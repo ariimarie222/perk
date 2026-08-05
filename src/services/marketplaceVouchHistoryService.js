@@ -58,7 +58,6 @@ export function parseMarketplaceVouchMessage(message) {
   if (!sellerId) return null;
 
   const rating = parseRating(field('rating')) ?? parseRating(fullText);
-  if (!rating) return { candidate: true, reason: 'missing_rating', sellerId };
 
   const buyerId = mentionId(field('buyer')) || (message.author?.bot ? null : message.author?.id) || null;
   const review = field('review') || message.content?.trim() || 'Legacy marketplace vouch';
@@ -75,7 +74,7 @@ export function parseMarketplaceVouchMessage(message) {
       sellerId,
       buyerId,
       serviceType,
-      rating,
+      rating: rating || null,
       review: String(review).slice(0, 1000),
       proofUrl,
       submittedAt: message.createdAt?.toISOString?.() || new Date(Number(message.createdTimestamp || Date.now())).toISOString(),
@@ -129,21 +128,23 @@ export async function syncMarketplaceVouchHistory(client) {
       guildId,
     });
     if (!existing) imported += 1;
-    if (MARKETPLACE_SELLER_IDS.includes(String(record.sellerId)) && Number(record.rating) >= 1 && Number(record.rating) <= 5) {
+    if (MARKETPLACE_SELLER_IDS.includes(String(record.sellerId))) {
       active.push(record);
     }
   }
 
-  // Only replace totals when every seller-mentioned historical message was understood.
-  // This prevents an unfamiliar legacy format from silently lowering a seller's stats.
+  // Seller-tagged legacy messages without a rating still count as vouches. Their
+  // missing rating is intentionally excluded from the average instead of guessed.
   let reconciled = false;
   if (skipped === 0) {
     for (const sellerId of MARKETPLACE_SELLER_IDS) {
       const sellerVouches = active.filter(vouch => String(vouch.sellerId) === sellerId);
+      const ratedVouches = sellerVouches.filter(vouch => Number(vouch.rating) >= 1 && Number(vouch.rating) <= 5);
       await setSellerMarketplaceStats(guildId, sellerId, {
         completedTransactions: sellerVouches.length,
         totalReviews: sellerVouches.length,
-        ratingTotal: sellerVouches.reduce((sum, vouch) => sum + Number(vouch.rating), 0),
+        ratedReviews: ratedVouches.length,
+        ratingTotal: ratedVouches.reduce((sum, vouch) => sum + Number(vouch.rating), 0),
       });
     }
     reconciled = true;
