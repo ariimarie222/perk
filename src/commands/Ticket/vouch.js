@@ -5,12 +5,16 @@ import {
 } from 'discord.js';
 import { MARKETPLACE_SELLER_IDS, isMarketplaceSellerId } from '../../config/marketplace.js';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
-import { recordSellerMarketplaceReview, saveMarketplaceVouch } from '../../utils/database/tickets.js';
+import {
+    getSellerMarketplaceStats,
+    recordSellerMarketplaceReview,
+    saveMarketplaceVouch,
+} from '../../utils/database/tickets.js';
 import { replyUserError, ErrorTypes } from '../../utils/errorHandler.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 import { logger } from '../../utils/logger.js';
 import { buildMarketplaceVouchEmbed } from '../../utils/marketplaceVouch.js';
-import { createSuccessEmbed } from '../../utils/embeds.js';
+import { createInfoEmbed, createSuccessEmbed } from '../../utils/embeds.js';
 
 function isImageAttachment(attachment) {
     return attachment?.contentType?.startsWith('image/')
@@ -20,48 +24,58 @@ function isImageAttachment(attachment) {
 export default {
     data: new SlashCommandBuilder()
         .setName('vouch')
-        .setDescription('Submit a marketplace vouch for a transaction completed outside a ticket.')
+        .setDescription('Submit marketplace vouches or view your seller stats.')
         .setDMPermission(false)
-        .addStringOption(option =>
-            option
-                .setName('seller')
-                .setDescription('The staff member who completed your transaction.')
-                .setRequired(true)
-                .setAutocomplete(true),
-        )
-        .addStringOption(option =>
-            option
-                .setName('service')
-                .setDescription('The type of marketplace transaction.')
-                .setRequired(true)
-                .addChoices(
-                    { name: 'Purchase', value: 'purchase' },
-                    { name: 'Cashout', value: 'cashout' },
-                    { name: 'Preorder', value: 'preorder' },
-                    { name: 'Middleman', value: 'middleman' },
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('submit')
+                .setDescription('Submit a vouch for a transaction completed outside a ticket.')
+                .addStringOption(option =>
+                    option
+                        .setName('seller')
+                        .setDescription('The staff member who completed your transaction.')
+                        .setRequired(true)
+                        .setAutocomplete(true),
+                )
+                .addStringOption(option =>
+                    option
+                        .setName('service')
+                        .setDescription('The type of marketplace transaction.')
+                        .setRequired(true)
+                        .addChoices(
+                            { name: 'Purchase', value: 'purchase' },
+                            { name: 'Cashout', value: 'cashout' },
+                            { name: 'Preorder', value: 'preorder' },
+                            { name: 'Middleman', value: 'middleman' },
+                        ),
+                )
+                .addIntegerOption(option =>
+                    option
+                        .setName('rating')
+                        .setDescription('Your rating from 1 to 5 stars.')
+                        .setMinValue(1)
+                        .setMaxValue(5)
+                        .setRequired(true),
+                )
+                .addStringOption(option =>
+                    option
+                        .setName('review')
+                        .setDescription('Describe your experience with the transaction.')
+                        .setMinLength(1)
+                        .setMaxLength(1000)
+                        .setRequired(true),
+                )
+                .addAttachmentOption(option =>
+                    option
+                        .setName('proof')
+                        .setDescription('A screenshot of the transaction or trade history.')
+                        .setRequired(true),
                 ),
         )
-        .addIntegerOption(option =>
-            option
-                .setName('rating')
-                .setDescription('Your rating from 1 to 5 stars.')
-                .setMinValue(1)
-                .setMaxValue(5)
-                .setRequired(true),
-        )
-        .addStringOption(option =>
-            option
-                .setName('review')
-                .setDescription('Describe your experience with the transaction.')
-                .setMinLength(1)
-                .setMaxLength(1000)
-                .setRequired(true),
-        )
-        .addAttachmentOption(option =>
-            option
-                .setName('proof')
-                .setDescription('A screenshot of the transaction or trade history.')
-                .setRequired(true),
+        .addSubcommand(subcommand =>
+            subcommand
+                .setName('stats')
+                .setDescription('View your own marketplace vouch totals and rating.'),
         ),
 
     async execute(interaction, guildConfig, client) {
@@ -69,6 +83,35 @@ export default {
             flags: MessageFlags.Ephemeral,
         });
         if (!deferred) return;
+
+        const subcommand = interaction.options.getSubcommand();
+        if (subcommand === 'stats') {
+            if (!isMarketplaceSellerId(interaction.user.id)) {
+                return await replyUserError(interaction, {
+                    type: ErrorTypes.PERMISSION,
+                    message: 'Only current approved marketplace sellers can view seller vouch stats.',
+                });
+            }
+
+            const stats = await getSellerMarketplaceStats(interaction.guildId, interaction.user.id);
+            const averageRating = stats.totalReviews > 0 && stats.averageRating != null
+                ? `${stats.averageRating}/5`
+                : 'No ratings yet';
+
+            return await InteractionHelper.safeEditReply(interaction, {
+                embeds: [
+                    createInfoEmbed({
+                        title: '🎀 Your Seller Vouch Stats',
+                        description: `Stats for <@${interaction.user.id}>`,
+                        fields: [
+                            { name: 'Completed Transactions', value: String(stats.completedTransactions || 0), inline: true },
+                            { name: 'Total Vouches', value: String(stats.totalReviews || 0), inline: true },
+                            { name: 'Average Rating', value: averageRating, inline: true },
+                        ],
+                    }),
+                ],
+            });
+        }
 
         const sellerId = interaction.options.getString('seller', true);
         const serviceType = interaction.options.getString('service', true);

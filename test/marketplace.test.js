@@ -7,6 +7,7 @@ import payCommand, {
   canManageMarketplace,
 } from '../src/commands/Economy/pay.js';
 import paymentConfigCommand from '../src/commands/Ticket/payment-config.js';
+import vouchCommand from '../src/commands/Ticket/vouch.js';
 import paymentButton, {
   formatPaymentDetails,
   formatPaymentNotes,
@@ -25,7 +26,7 @@ import {
   saveMarketplaceVouch,
 } from '../src/utils/database/tickets.js';
 import { PERK_THEME } from '../src/config/perkTheme.js';
-import { MARKETPLACE_SELLER_ROLE_ID } from '../src/config/marketplace.js';
+import { MARKETPLACE_SELLER_IDS, MARKETPLACE_SELLER_ROLE_ID } from '../src/config/marketplace.js';
 import '../src/utils/embeds.js';
 
 function resetDatabase() {
@@ -34,13 +35,23 @@ function resetDatabase() {
   db.useFallback = true;
 }
 
-test('pay exposes exactly the five approved profile subcommands', () => {
+test('pay exposes exactly the four approved profile subcommands', () => {
   const command = payCommand.data.toJSON();
   assert.equal(command.default_member_permissions, undefined);
   assert.deepEqual(
     command.options.map(option => option.name),
-    ['arii-josi', 'burhan', 'maj', 'flix', 'cici'],
+    ['arii-josi', 'burhan', 'maj', 'flix'],
   );
+});
+
+test('demoted sellers are absent from the approved marketplace seller list', () => {
+  assert.equal(MARKETPLACE_SELLER_IDS.includes('1417926531577151622'), false);
+});
+
+test('vouch exposes submit and self-service stats subcommands', () => {
+  const command = vouchCommand.data.toJSON();
+  assert.deepEqual(command.options.map(option => option.name), ['submit', 'stats']);
+  assert.equal(command.options.find(option => option.name === 'stats').options?.length || 0, 0);
 });
 
 test('payment configuration exposes simple add and remove commands', () => {
