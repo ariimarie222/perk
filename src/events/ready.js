@@ -5,6 +5,7 @@ import { reconcileReactionRoleMessages } from "../services/reactionRoleService.j
 import { reconcileTicketPanels, reconcileVerificationPanels, reconcileReactionRolePanelHealth } from "../services/panelHealthService.js";
 import { reconcileLevelRoles } from "../services/leveling/levelRoleSyncService.js";
 import { initRiffyAfterReady } from "../services/music/riffySetup.js";
+import { syncMarketplaceVouchHistory } from "../services/marketplaceVouchHistoryService.js";
 
 export default {
   name: Events.ClientReady,
@@ -46,6 +47,13 @@ export default {
       startupLog(
         `Level role sync: scanned ${levelRoleSummary.scannedGuilds} guilds, pruned ${levelRoleSummary.prunedRewardEntries} stale rewards, re-awarded ${levelRoleSummary.rolesReAwarded} roles, errors ${levelRoleSummary.errors}`
       );
+
+      const vouchHistorySummary = await syncMarketplaceVouchHistory(client);
+      if (!vouchHistorySummary.unavailable) {
+        startupLog(
+          `Vouch history sync: scanned ${vouchHistorySummary.scanned}, matched ${vouchHistorySummary.matched}, imported ${vouchHistorySummary.imported}, skipped ${vouchHistorySummary.skipped}, totals reconciled ${vouchHistorySummary.reconciled ? 'yes' : 'no'}`
+        );
+      }
     } catch (error) {
       logger.error("Error in ready event:", error);
     }
