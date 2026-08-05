@@ -109,13 +109,18 @@ export async function getSellerMarketplaceStats(guildId, sellerId) {
         await db.initialize();
     }
 
-    return await db.get(getSellerMarketplaceStatsKey(guildId, sellerId), {
+    const stats = await db.get(getSellerMarketplaceStatsKey(guildId, sellerId), {
         sellerId,
         completedTransactions: 0,
         totalReviews: 0,
+        ratedReviews: 0,
         ratingTotal: 0,
         averageRating: null,
     });
+    return {
+        ...stats,
+        ratedReviews: Number(stats.ratedReviews ?? stats.totalReviews ?? 0),
+    };
 }
 
 export async function recordSellerMarketplaceReview(guildId, sellerId, rating) {
@@ -126,13 +131,15 @@ export async function recordSellerMarketplaceReview(guildId, sellerId, rating) {
     return Mutex.runExclusive(`marketplace-stats:${guildId}:${sellerId}`, async () => {
         const current = await getSellerMarketplaceStats(guildId, sellerId);
         const totalReviews = Number(current.totalReviews || 0) + 1;
+        const ratedReviews = Number(current.ratedReviews ?? current.totalReviews ?? 0) + 1;
         const ratingTotal = Number(current.ratingTotal || 0) + Number(rating);
         const stats = {
             sellerId,
             completedTransactions: Number(current.completedTransactions || 0) + 1,
             totalReviews,
+            ratedReviews,
             ratingTotal,
-            averageRating: Math.round((ratingTotal / totalReviews) * 100) / 100,
+            averageRating: Math.round((ratingTotal / ratedReviews) * 100) / 100,
             updatedAt: new Date().toISOString(),
         };
 
@@ -144,20 +151,23 @@ export async function recordSellerMarketplaceReview(guildId, sellerId, rating) {
 export async function setSellerMarketplaceStats(guildId, sellerId, {
     completedTransactions = 0,
     totalReviews = 0,
+    ratedReviews = totalReviews,
     ratingTotal = 0,
 } = {}) {
     if (!db.initialized) await db.initialize();
     return Mutex.runExclusive(`marketplace-stats:${guildId}:${sellerId}`, async () => {
         const normalizedTransactions = Math.max(0, Number(completedTransactions) || 0);
         const normalizedReviews = Math.max(0, Number(totalReviews) || 0);
+        const normalizedRatedReviews = Math.min(normalizedReviews, Math.max(0, Number(ratedReviews) || 0));
         const normalizedRatingTotal = Math.max(0, Number(ratingTotal) || 0);
         const stats = {
             sellerId,
             completedTransactions: normalizedTransactions,
             totalReviews: normalizedReviews,
+            ratedReviews: normalizedRatedReviews,
             ratingTotal: normalizedRatingTotal,
-            averageRating: normalizedReviews > 0
-                ? Math.round((normalizedRatingTotal / normalizedReviews) * 100) / 100
+            averageRating: normalizedRatedReviews > 0
+                ? Math.round((normalizedRatingTotal / normalizedRatedReviews) * 100) / 100
                 : null,
             updatedAt: new Date().toISOString(),
         };
@@ -169,6 +179,7 @@ export async function setSellerMarketplaceStats(guildId, sellerId, {
 export async function adjustSellerMarketplaceStats(guildId, sellerId, {
     transactionDelta = 0,
     reviewDelta = 0,
+    ratingCountDelta = reviewDelta,
     ratingDelta = 0,
 } = {}) {
     if (!db.initialized) await db.initialize();
@@ -176,13 +187,15 @@ export async function adjustSellerMarketplaceStats(guildId, sellerId, {
         const current = await getSellerMarketplaceStats(guildId, sellerId);
         const completedTransactions = Math.max(0, Number(current.completedTransactions || 0) + Number(transactionDelta));
         const totalReviews = Math.max(0, Number(current.totalReviews || 0) + Number(reviewDelta));
+        const ratedReviews = Math.min(totalReviews, Math.max(0, Number(current.ratedReviews ?? current.totalReviews ?? 0) + Number(ratingCountDelta)));
         const ratingTotal = Math.max(0, Number(current.ratingTotal || 0) + Number(ratingDelta));
         const stats = {
             sellerId,
             completedTransactions,
             totalReviews,
+            ratedReviews,
             ratingTotal,
-            averageRating: totalReviews > 0 ? Math.round((ratingTotal / totalReviews) * 100) / 100 : null,
+            averageRating: ratedReviews > 0 ? Math.round((ratingTotal / ratedReviews) * 100) / 100 : null,
             updatedAt: new Date().toISOString(),
         };
         await db.set(getSellerMarketplaceStatsKey(guildId, sellerId), stats);
