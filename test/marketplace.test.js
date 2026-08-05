@@ -104,6 +104,22 @@ test('historical marketplace vouch embeds are matched to approved sellers', () =
   assert.equal(parsed.record.review, 'perfect tysm');
 });
 
+test('historical seller-tagged vouches without ratings are kept as unrated vouches', () => {
+  const sellerId = MARKETPLACE_SELLER_IDS[0];
+  const parsed = parseMarketplaceVouchMessage({
+    id: '223456789012345678',
+    channelId: '1444261518068682763',
+    content: `vouch for <@${sellerId}> tysm!`,
+    author: { id: '111111111111111111', bot: false },
+    createdAt: new Date('2026-06-01T12:00:00.000Z'),
+    url: 'https://discord.com/channels/guild/channel/message',
+    embeds: [],
+  });
+
+  assert.equal(parsed.record.sellerId, sellerId);
+  assert.equal(parsed.record.rating, null);
+});
+
 test('payment configuration exposes simple add and remove commands', () => {
   const command = paymentConfigCommand.data.toJSON();
   assert.deepEqual(command.options.map(option => option.name), ['add', 'remove']);
