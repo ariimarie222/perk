@@ -141,6 +141,31 @@ export async function recordSellerMarketplaceReview(guildId, sellerId, rating) {
     });
 }
 
+export async function setSellerMarketplaceStats(guildId, sellerId, {
+    completedTransactions = 0,
+    totalReviews = 0,
+    ratingTotal = 0,
+} = {}) {
+    if (!db.initialized) await db.initialize();
+    return Mutex.runExclusive(`marketplace-stats:${guildId}:${sellerId}`, async () => {
+        const normalizedTransactions = Math.max(0, Number(completedTransactions) || 0);
+        const normalizedReviews = Math.max(0, Number(totalReviews) || 0);
+        const normalizedRatingTotal = Math.max(0, Number(ratingTotal) || 0);
+        const stats = {
+            sellerId,
+            completedTransactions: normalizedTransactions,
+            totalReviews: normalizedReviews,
+            ratingTotal: normalizedRatingTotal,
+            averageRating: normalizedReviews > 0
+                ? Math.round((normalizedRatingTotal / normalizedReviews) * 100) / 100
+                : null,
+            updatedAt: new Date().toISOString(),
+        };
+        await db.set(getSellerMarketplaceStatsKey(guildId, sellerId), stats);
+        return stats;
+    });
+}
+
 export async function adjustSellerMarketplaceStats(guildId, sellerId, {
     transactionDelta = 0,
     reviewDelta = 0,
