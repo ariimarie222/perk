@@ -79,12 +79,12 @@ export default {
         ),
 
     async execute(interaction, guildConfig, client) {
+        const subcommand = interaction.options.getSubcommand();
         const deferred = await InteractionHelper.safeDefer(interaction, {
-            flags: MessageFlags.Ephemeral,
+            ...(subcommand === 'submit' ? { flags: MessageFlags.Ephemeral } : {}),
         });
         if (!deferred) return;
 
-        const subcommand = interaction.options.getSubcommand();
         if (subcommand === 'stats') {
             if (!isMarketplaceSellerId(interaction.user.id)) {
                 return await replyUserError(interaction, {

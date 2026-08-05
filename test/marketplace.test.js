@@ -27,6 +27,7 @@ import {
 } from '../src/utils/database/tickets.js';
 import { PERK_THEME } from '../src/config/perkTheme.js';
 import { MARKETPLACE_SELLER_IDS, MARKETPLACE_SELLER_ROLE_ID } from '../src/config/marketplace.js';
+import { parseMarketplaceVouchMessage } from '../src/services/marketplaceVouchHistoryService.js';
 import '../src/utils/embeds.js';
 
 function resetDatabase() {
@@ -52,6 +53,55 @@ test('vouch exposes submit and self-service stats subcommands', () => {
   const command = vouchCommand.data.toJSON();
   assert.deepEqual(command.options.map(option => option.name), ['submit', 'stats']);
   assert.equal(command.options.find(option => option.name === 'stats').options?.length || 0, 0);
+});
+
+test('seller vouch stats defer publicly', async () => {
+  resetDatabase();
+  let deferOptions = null;
+  const interaction = {
+    id: 'stats-interaction',
+    createdTimestamp: Date.now(),
+    guildId: 'guild',
+    user: { id: MARKETPLACE_SELLER_IDS[0] },
+    replied: false,
+    deferred: false,
+    options: { getSubcommand: () => 'stats' },
+    deferReply: async options => {
+      deferOptions = options;
+      interaction.deferred = true;
+    },
+    editReply: async () => {},
+  };
+
+  await vouchCommand.execute(interaction, {}, {});
+  assert.deepEqual(deferOptions, {});
+});
+
+test('historical marketplace vouch embeds are matched to approved sellers', () => {
+  const sellerId = MARKETPLACE_SELLER_IDS[0];
+  const parsed = parseMarketplaceVouchMessage({
+    id: '123456789012345678',
+    channelId: '1444261518068682763',
+    content: '',
+    author: { id: 'bot', bot: true },
+    createdAt: new Date('2026-07-01T12:00:00.000Z'),
+    url: 'https://discord.com/channels/guild/channel/message',
+    embeds: [{
+      fields: [
+        { name: 'Seller', value: `<@${sellerId}>` },
+        { name: 'Buyer', value: '<@111111111111111111>' },
+        { name: 'Service', value: 'Purchase' },
+        { name: 'Rating', value: '⭐⭐⭐⭐⭐' },
+        { name: 'Review', value: 'perfect tysm' },
+      ],
+      image: { url: 'https://example.com/proof.png' },
+    }],
+  });
+
+  assert.equal(parsed.record.sellerId, sellerId);
+  assert.equal(parsed.record.rating, 5);
+  assert.equal(parsed.record.serviceType, 'purchase');
+  assert.equal(parsed.record.review, 'perfect tysm');
 });
 
 test('payment configuration exposes simple add and remove commands', () => {
