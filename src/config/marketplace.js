@@ -4,7 +4,6 @@ export const MARKETPLACE_SELLER_IDS = Object.freeze([
   '1464305576828997754',
   '876364511886589962',
   '484469700164714506',
-  '1417926531577151622',
 ]);
 
 export const MARKETPLACE_SELLER_ROLE_ID = '1444267814851448862';
@@ -14,7 +13,6 @@ export const PAYMENT_PROFILES = Object.freeze({
   burhan: Object.freeze({ key: 'burhan', name: 'Burhan' }),
   maj: Object.freeze({ key: 'maj', name: 'Maj' }),
   flix: Object.freeze({ key: 'flix', name: 'Flix' }),
-  cici: Object.freeze({ key: 'cici', name: 'Cici' }),
 });
 
 export const PAYMENT_METHOD_TYPES = Object.freeze({
