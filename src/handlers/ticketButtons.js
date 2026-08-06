@@ -80,6 +80,55 @@ async function openCreateTicketModal(interaction, ticketType, requestedSellerId 
   await interaction.showModal(modal);
 }
 
+async function createCustomBotTicketFromSelection(interaction) {
+  try {
+    const rateLimitKey = `${interaction.user.id}:create_ticket`;
+    const allowed = await checkRateLimit(rateLimitKey, 3, 60000);
+    if (!allowed) {
+      await replyUserError(interaction, {
+        type: ErrorTypes.RATE_LIMIT,
+        message: 'You are creating tickets too quickly. Please wait a minute and try again.',
+      });
+      return;
+    }
+
+    const config = await getGuildConfig(interaction.client, interaction.guildId);
+    const maxTicketsPerUser = config.maxTicketsPerUser || 3;
+    const currentTicketCount = await getUserTicketCount(interaction.guildId, interaction.user.id);
+    if (currentTicketCount >= maxTicketsPerUser) {
+      await replyUserError(interaction, {
+        type: ErrorTypes.VALIDATION,
+        message: `You have reached the maximum number of open tickets (${maxTicketsPerUser}).\n\nPlease close your existing tickets before creating a new one.\n\n**Current Tickets:** ${currentTicketCount}/${maxTicketsPerUser}`,
+      });
+      return;
+    }
+
+    await interaction.deferUpdate();
+
+    const { channel } = await createTicket(
+      interaction.guild,
+      interaction.member,
+      config.ticketCategoryId || null,
+      'Custom bot order - details will be submitted with /bot begin.',
+      'none',
+      'custom_bot',
+      CUSTOM_BOT_OWNER_ID,
+    );
+
+    await interaction.editReply({
+      content: '',
+      components: [],
+      embeds: [successEmbed('Ticket Created', `Your custom bot ticket has been created in ${channel}!`)],
+    });
+  } catch (error) {
+    await handleInteractionError(interaction, error, {
+      type: 'selectMenu',
+      handler: 'ticket_type',
+      customId: interaction.customId,
+    });
+  }
+}
+
 async function assertTicketPermission(interaction, client, actionLabel, options = {}, timeoutMs = 2500) {
   const { allowTicketCreator = false } = options;
 
@@ -243,7 +292,7 @@ const ticketTypeHandler = {
       }
 
       if (ticketType === 'custom_bot') {
-        await openCreateTicketModal(interaction, ticketType, CUSTOM_BOT_OWNER_ID);
+        await createCustomBotTicketFromSelection(interaction);
         return;
       }
 
