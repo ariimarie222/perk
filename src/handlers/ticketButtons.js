@@ -10,6 +10,7 @@ import {
   PermissionFlagsBits,
 } from 'discord.js';
 import { MARKETPLACE_SELLER_IDS, isMarketplaceSellerId } from '../config/marketplace.js';
+import { CUSTOM_BOT_OWNER_ID } from '../config/customBotShop.js';
 import { createEmbed, successEmbed } from '../utils/embeds.js';
 import {
   createTicket,
@@ -56,6 +57,7 @@ async function openCreateTicketModal(interaction, ticketType, requestedSellerId 
     middleman: 'Middleman',
     preorder: 'Preorder',
     support: 'Support',
+    custom_bot: 'Custom Bot',
   };
   const label = ticketTypeLabels[ticketType];
   if (!label) {
@@ -164,6 +166,7 @@ const createTicketHandler = {
           new StringSelectMenuOptionBuilder().setLabel('Middleman').setDescription('Request a middleman for a trade').setValue('middleman').setEmoji('🤝'),
           new StringSelectMenuOptionBuilder().setLabel('Preorder').setDescription('Ask about a preorder').setValue('preorder').setEmoji('📦'),
           new StringSelectMenuOptionBuilder().setLabel('Support').setDescription('Get help from the support team').setValue('support').setEmoji('🛟'),
+          new StringSelectMenuOptionBuilder().setLabel('Custom Bot').setDescription('Order a fully custom-coded Discord bot').setValue('custom_bot').setEmoji('🎀'),
         );
 
       await interaction.reply({
@@ -193,6 +196,7 @@ const ticketTypeHandler = {
         middleman: 'Middleman',
         preorder: 'Preorder',
         support: 'Support',
+        custom_bot: 'Custom Bot',
       };
       const label = ticketTypeLabels[ticketType];
       if (!label) {
@@ -235,6 +239,11 @@ const ticketTypeHandler = {
             new ActionRowBuilder().addComponents(sellerSelect),
           ],
         });
+        return;
+      }
+
+      if (ticketType === 'custom_bot') {
+        await openCreateTicketModal(interaction, ticketType, CUSTOM_BOT_OWNER_ID);
         return;
       }
 
