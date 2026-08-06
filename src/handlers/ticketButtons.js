@@ -161,12 +161,12 @@ const createTicketHandler = {
         .setCustomId('ticket_type:select')
         .setPlaceholder('Choose a ticket type...')
         .addOptions(
+          new StringSelectMenuOptionBuilder().setLabel('Custom Bot').setDescription('Order a fully custom-coded Discord bot').setValue('custom_bot').setEmoji('🎀'),
           new StringSelectMenuOptionBuilder().setLabel('Purchase').setDescription('Get help with a purchase').setValue('purchase').setEmoji('🛒'),
           new StringSelectMenuOptionBuilder().setLabel('Cashout').setDescription('Request a cashout').setValue('cashout').setEmoji('💸'),
           new StringSelectMenuOptionBuilder().setLabel('Middleman').setDescription('Request a middleman for a trade').setValue('middleman').setEmoji('🤝'),
           new StringSelectMenuOptionBuilder().setLabel('Preorder').setDescription('Ask about a preorder').setValue('preorder').setEmoji('📦'),
           new StringSelectMenuOptionBuilder().setLabel('Support').setDescription('Get help from the support team').setValue('support').setEmoji('🛟'),
-          new StringSelectMenuOptionBuilder().setLabel('Custom Bot').setDescription('Order a fully custom-coded Discord bot').setValue('custom_bot').setEmoji('🎀'),
         );
 
       await interaction.reply({
