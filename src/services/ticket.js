@@ -273,7 +273,9 @@ export async function createTicket(
     const staffMention = ticketData.requestedSellerId
       ? ` <@${ticketData.requestedSellerId}>`
       : (config.ticketStaffRoleId ? ` <@&${config.ticketStaffRoleId}>` : '');
-    const messageContent = `${member.toString()}${staffMention}`;
+    const messageContent = serviceType === 'custom_bot'
+      ? `${member.toString()}${staffMention}\n\n🎀 ${member.toString()}, please run \`/bot begin\` to fill out your custom bot order form.`
+      : `${member.toString()}${staffMention}`;
     const allowedMentions = ticketData.requestedSellerId
       ? {
           users: [member.id, ticketData.requestedSellerId],
