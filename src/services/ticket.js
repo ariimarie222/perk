@@ -29,6 +29,7 @@ const SERVICE_TYPE_LABELS = Object.freeze({
   middleman: 'Middleman',
   preorder: 'Preorder',
   support: 'Support',
+  custom_bot: 'Custom Bot',
 });
 const MARKETPLACE_REVIEW_SERVICE_TYPES = new Set([
   'purchase',
@@ -190,6 +191,15 @@ export async function createTicket(
             PermissionFlagsBits.ReadMessageHistory,
           ],
         },
+        ...(requestedSellerId && requestedSellerId !== 'any' && requestedSellerId !== member.id ? [{
+          id: requestedSellerId,
+          allow: [
+            PermissionFlagsBits.ViewChannel,
+            PermissionFlagsBits.SendMessages,
+            PermissionFlagsBits.AttachFiles,
+            PermissionFlagsBits.ReadMessageHistory,
+          ],
+        }] : []),
         ...(config.ticketStaffRoleId ? [{
           id: config.ticketStaffRoleId,
           allow: [
@@ -231,10 +241,12 @@ export async function createTicket(
         { name: 'Status', value: '🟢 Open', inline: true },
         { name: 'Service Type', value: serviceTypeLabel, inline: true },
         { name: 'Claimed By', value: 'Not claimed', inline: true },
-        { name: 'Seller', value: 'Not claimed', inline: true },
+        { name: serviceType === 'custom_bot' ? 'Handled By' : 'Seller', value: 'Not claimed', inline: true },
         {
-          name: 'Requested Seller',
-          value: ticketData.requestedSellerId ? `<@${ticketData.requestedSellerId}>` : 'Any seller',
+          name: serviceType === 'custom_bot' ? 'Custom Bot Contact' : 'Requested Seller',
+          value: ticketData.requestedSellerId
+            ? `<@${ticketData.requestedSellerId}>`
+            : (serviceType === 'custom_bot' ? 'Not assigned' : 'Any seller'),
           inline: true,
         },
         { name: 'Created', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
