@@ -250,7 +250,7 @@ async function registerGlobalCommands(client, clientId, commands, totalSubcomman
     validateCommands(commands);
     logger.info('Command validation passed');
 
-    const serverCommandNames = new Set(['pay', 'payment-config', 'vouch', 'vouch-admin', 'bot-shop']);
+    const serverCommandNames = new Set(['pay', 'payment-config', 'vouch', 'vouch-admin', 'bot-shop', 'bot']);
     const serverCommands = commands.filter(command => serverCommandNames.has(command.name));
     const connectedGuildIds = client.guilds?.cache ? [...client.guilds.cache.keys()] : [];
     const marketplaceGuildId = process.env.GUILD_ID
