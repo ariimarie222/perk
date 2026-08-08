@@ -3,7 +3,7 @@ import {
     PermissionFlagsBits,
     SlashCommandBuilder,
 } from 'discord.js';
-import { MARKETPLACE_SELLER_IDS, isMarketplaceSellerId } from '../../config/marketplace.js';
+import { getMarketplaceSellerMembers, isMarketplaceSellerMember } from '../../config/marketplace.js';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
 import {
     getSellerMarketplaceStats,
@@ -86,7 +86,7 @@ export default {
         if (!deferred) return;
 
         if (subcommand === 'stats') {
-            if (!isMarketplaceSellerId(interaction.user.id)) {
+            if (!isMarketplaceSellerMember(interaction.member)) {
                 return await replyUserError(interaction, {
                     type: ErrorTypes.PERMISSION,
                     message: 'Only current approved marketplace sellers can view seller vouch stats.',
@@ -119,14 +119,15 @@ export default {
         const review = interaction.options.getString('review', true).trim();
         const proof = interaction.options.getAttachment('proof', true);
 
-        if (!isMarketplaceSellerId(sellerId)) {
+        const sellerMember = await interaction.guild.members.fetch(sellerId).catch(() => null);
+        if (!isMarketplaceSellerMember(sellerMember)) {
             return await replyUserError(interaction, {
                 type: ErrorTypes.VALIDATION,
-                message: 'Please select a seller from the official marketplace seller list.',
+                message: 'Please choose a current member with the marketplace seller role.',
             });
         }
 
-        const seller = await client.users.fetch(sellerId).catch(() => null);
+        const seller = sellerMember.user;
         if (!seller) {
             return await replyUserError(interaction, {
                 type: ErrorTypes.VALIDATION,
@@ -161,14 +162,6 @@ export default {
             return await replyUserError(interaction, {
                 type: ErrorTypes.CONFIGURATION,
                 message: 'The marketplace vouch channel is not configured or is unavailable. Please ask staff to check `/ticket dashboard`.',
-            });
-        }
-
-        const sellerMember = await interaction.guild.members.fetch(seller.id).catch(() => null);
-        if (!sellerMember) {
-            return await replyUserError(interaction, {
-                type: ErrorTypes.VALIDATION,
-                message: 'The selected seller is not currently in this server.',
             });
         }
 
@@ -236,13 +229,8 @@ export default {
 
     async autocomplete(interaction) {
         const focused = interaction.options.getFocused().toLowerCase();
-        const members = await Promise.all(
-            MARKETPLACE_SELLER_IDS.map(sellerId =>
-                interaction.guild.members.fetch(sellerId).catch(() => null)
-            ),
-        );
+        const members = await getMarketplaceSellerMembers(interaction.guild);
         const choices = members
-            .filter(Boolean)
             .map(member => ({
                 name: member.displayName || member.user.username,
                 value: member.id,
