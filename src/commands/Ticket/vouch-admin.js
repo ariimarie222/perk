@@ -1,5 +1,5 @@
 import { MessageFlags, PermissionFlagsBits, SlashCommandBuilder } from 'discord.js';
-import { MARKETPLACE_SELLER_IDS, isMarketplaceSellerId } from '../../config/marketplace.js';
+import { getMarketplaceSellerMembers, isMarketplaceSellerMember } from '../../config/marketplace.js';
 import { getGuildConfig } from '../../services/config/guildConfig.js';
 import {
   adjustSellerMarketplaceStats,
@@ -142,8 +142,11 @@ export default {
       const proof = interaction.options.getAttachment('proof');
       const serviceType = interaction.options.getString('transaction_type');
       const transactionReference = interaction.options.getString('transaction_reference');
-      if (sellerId && !isMarketplaceSellerId(sellerId)) {
-        return InteractionHelper.safeEditReply(interaction, { embeds: [createErrorEmbed('Please choose a seller from the approved seller list.')] });
+      if (sellerId) {
+        const sellerMember = await interaction.guild.members.fetch(sellerId).catch(() => null);
+        if (!isMarketplaceSellerMember(sellerMember)) {
+          return InteractionHelper.safeEditReply(interaction, { embeds: [createErrorEmbed('Please choose a current member with the marketplace seller role.')] });
+        }
       }
       if (proof && !(proof.contentType?.startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(proof.name || ''))) {
         return InteractionHelper.safeEditReply(interaction, { embeds: [createErrorEmbed('The replacement proof must be an image.')] });
@@ -158,8 +161,9 @@ export default {
       });
     } else if (action === 'transfer') {
       const newSellerId = interaction.options.getString('new_seller', true);
-      if (!isMarketplaceSellerId(newSellerId)) {
-        return InteractionHelper.safeEditReply(interaction, { embeds: [createErrorEmbed('Please choose a seller from the approved seller list.')] });
+      const newSellerMember = await interaction.guild.members.fetch(newSellerId).catch(() => null);
+      if (!isMarketplaceSellerMember(newSellerMember)) {
+        return InteractionHelper.safeEditReply(interaction, { embeds: [createErrorEmbed('Please choose a current member with the marketplace seller role.')] });
       }
       if (newSellerId === original.sellerId) {
         return InteractionHelper.safeEditReply(interaction, { embeds: [createErrorEmbed('The new seller must be different from the original seller.')] });
@@ -232,9 +236,9 @@ export default {
 
   async autocomplete(interaction) {
     const focused = interaction.options.getFocused().toLowerCase();
-    const members = await Promise.all(MARKETPLACE_SELLER_IDS.map(id => interaction.guild.members.fetch(id).catch(() => null)));
+    const members = await getMarketplaceSellerMembers(interaction.guild);
     await interaction.respond(
-      members.filter(Boolean)
+      members
         .map(member => ({ name: member.displayName || member.user.username, value: member.id }))
         .filter(choice => choice.name.toLowerCase().includes(focused))
         .slice(0, 25),
