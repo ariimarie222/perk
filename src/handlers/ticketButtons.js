@@ -77,6 +77,19 @@ async function openCreateTicketModal(interaction, ticketType, requestedSellerId 
     .setMaxLength(1000);
 
   modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
+
+  if (['purchase', 'cashout', 'middleman', 'preorder'].includes(ticketType)) {
+    const paymentMethodInput = new TextInputBuilder()
+      .setCustomId('payment_method')
+      .setLabel('Payment method')
+      .setStyle(TextInputStyle.Short)
+      .setPlaceholder('Cash App, Apple Pay, PayPal, Venmo, Zelle, etc.')
+      .setRequired(true)
+      .setMaxLength(100);
+
+    modal.addComponents(new ActionRowBuilder().addComponents(paymentMethodInput));
+  }
+
   await interaction.showModal(modal);
 }
 
@@ -385,6 +398,9 @@ const createTicketModalHandler = {
       const ticketType = args[0] || 'support';
       const requestedSellerId = args[1] || 'any';
       const reason = interaction.fields.getTextInputValue('reason');
+      const paymentMethod = ['purchase', 'cashout', 'middleman', 'preorder'].includes(ticketType)
+        ? interaction.fields.getTextInputValue('payment_method').trim()
+        : 'Not applicable';
       const categoryId = config.ticketCategoryId || null;
       
       const { channel } = await createTicket(
@@ -395,6 +411,7 @@ const createTicketModalHandler = {
         'none',
         ticketType,
         requestedSellerId,
+        paymentMethod,
       );
       await interaction.editReply({
         embeds: [successEmbed(
