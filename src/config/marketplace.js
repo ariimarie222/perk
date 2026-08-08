@@ -32,6 +32,22 @@ export function isPaymentMethodType(methodType) {
   return Object.hasOwn(PAYMENT_METHOD_TYPES, String(methodType));
 }
 
-export function isMarketplaceSellerId(userId) {
-  return MARKETPLACE_SELLER_IDS.includes(String(userId));
+export function isMarketplaceSellerMember(member) {
+  return Boolean(
+    member
+    && !member.user?.bot
+    && member.roles?.cache?.has(MARKETPLACE_SELLER_ROLE_ID),
+  );
+}
+
+export async function getMarketplaceSellerMembers(guild) {
+  if (!guild) return [];
+
+  await guild.members.fetch();
+  const sellerRole = await guild.roles.fetch(MARKETPLACE_SELLER_ROLE_ID).catch(() => null);
+  if (!sellerRole) return [];
+
+  return [...sellerRole.members.values()]
+    .filter(isMarketplaceSellerMember)
+    .sort((a, b) => (a.displayName || a.user.username).localeCompare(b.displayName || b.user.username));
 }
