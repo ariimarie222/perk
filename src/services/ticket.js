@@ -23,6 +23,7 @@ import { buildMarketplaceVouchEmbed } from '../utils/marketplaceVouch.js';
 const TICKET_DELETE_DELAY_MS = 3000;
 const TICKET_DELETE_DELAY_SECONDS = Math.floor(TICKET_DELETE_DELAY_MS / 1000);
 const TICKET_SERVICE = 'ticketService';
+const TICKET_SIDE_EMOJI_URL = 'https://cdn.discordapp.com/emojis/1457677834293350482.png';
 const SERVICE_TYPE_LABELS = Object.freeze({
   purchase: 'Purchase',
   cashout: 'Cashout',
@@ -123,6 +124,7 @@ export async function createTicket(
   priority = 'none',
   serviceType = 'support',
   requestedSellerId = 'any',
+  paymentMethod = 'Not applicable',
 ) {
   try {
     const config = await getGuildConfig(guild.client, guild.id);
@@ -227,6 +229,7 @@ export async function createTicket(
           : null,
       priority: priority || 'none',
       reason,
+      paymentMethod: paymentMethod?.trim() || 'Not applicable',
     };
     
     await saveTicketData(guild.id, channel.id, ticketData);
@@ -235,21 +238,21 @@ export async function createTicket(
     
     const embed = createEmbed({
       title: `Ticket #${ticketNumber}`,
-      description: `${member.toString()}, thanks for creating a ticket!\n\n**Reason:** ${reason}\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`,
+      description: `${member.toString()}, thanks for creating a ticket!`,
       color: priorityInfo.color,
+      thumbnail: TICKET_SIDE_EMOJI_URL,
       fields: [
-        { name: 'Status', value: '🟢 Open', inline: true },
+        { name: 'Reason', value: reason, inline: false },
+        { name: 'Payment Method', value: ticketData.paymentMethod, inline: true },
         { name: 'Service Type', value: serviceTypeLabel, inline: true },
         { name: 'Claimed By', value: 'Not claimed', inline: true },
-        { name: serviceType === 'custom_bot' ? 'Handled By' : 'Seller', value: 'Not claimed', inline: true },
         {
-          name: serviceType === 'custom_bot' ? 'Custom Bot Contact' : 'Requested Seller',
+          name: 'Requested Seller',
           value: ticketData.requestedSellerId
             ? `<@${ticketData.requestedSellerId}>`
             : (serviceType === 'custom_bot' ? 'Not assigned' : 'Any seller'),
           inline: true,
         },
-        { name: 'Created', value: `<t:${Math.floor(Date.now() / 1000)}:R>`, inline: true },
       ],
     });
     
@@ -476,7 +479,8 @@ export async function closeTicket(
         description: embed.description || 'Ticket discussion',
         color: '#e74c3c',
         fields: embed.fields || [],
-        footer: embed.footer
+        footer: embed.footer,
+        thumbnail: embed.thumbnail?.url || TICKET_SIDE_EMOJI_URL,
       });
       
       await ticketMessage.edit({ 
@@ -1351,10 +1355,11 @@ export async function updateTicketPriority(channel, priority, updater) {
       
       const updatedEmbed = createEmbed({
         title: embed.title || 'Ticket',
-        description: embed.description?.split('\n**Priority:**')[0] + `\n**Priority:** ${priorityInfo.emoji} ${priorityInfo.label}`,
+        description: embed.description || 'Ticket discussion',
         color: priorityInfo.color,
         fields: embed.fields || [],
-        footer: embed.footer
+        footer: embed.footer,
+        thumbnail: embed.thumbnail?.url || TICKET_SIDE_EMOJI_URL,
       });
       
       await ticketMessage.edit({ embeds: [updatedEmbed] });
