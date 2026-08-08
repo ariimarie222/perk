@@ -9,7 +9,7 @@ import {
   StringSelectMenuOptionBuilder,
   PermissionFlagsBits,
 } from 'discord.js';
-import { MARKETPLACE_SELLER_IDS, isMarketplaceSellerId } from '../config/marketplace.js';
+import { getMarketplaceSellerMembers, isMarketplaceSellerMember } from '../config/marketplace.js';
 import { CUSTOM_BOT_OWNER_ID } from '../config/customBotShop.js';
 import { createEmbed, successEmbed } from '../utils/embeds.js';
 import {
@@ -254,13 +254,9 @@ const ticketTypeHandler = {
       }
 
       if (ticketType === 'purchase' || ticketType === 'cashout') {
-        const sellerMembers = await Promise.all(
-          MARKETPLACE_SELLER_IDS.map(sellerId =>
-            interaction.guild.members.fetch(sellerId).catch(() => null)
-          ),
-        );
+        const sellerMembers = await getMarketplaceSellerMembers(interaction.guild);
         const sellerOptions = sellerMembers
-          .filter(member => member && !member.user.bot)
+          .slice(0, 24)
           .map(member =>
             new StringSelectMenuOptionBuilder()
               .setLabel((member.displayName || member.user.username).slice(0, 100))
@@ -323,27 +319,11 @@ const ticketSellerHandler = {
         await openCreateTicketModal(interaction, ticketType, 'any');
         return;
       }
-      if (!isMarketplaceSellerId(sellerId)) {
-        await replyUserError(interaction, {
-          type: ErrorTypes.VALIDATION,
-          message: 'Please select a seller from the official marketplace seller list.',
-        });
-        return;
-      }
       const sellerMember = await interaction.guild.members.fetch(sellerId).catch(() => null);
-      if (!sellerMember || sellerMember.user.bot) {
-        await replyUserError(interaction, { type: ErrorTypes.VALIDATION, message: 'Please select a valid staff seller.' });
-        return;
-      }
-
-      const config = await getGuildConfig(client, interaction.guildId);
-      const isSeller =
-        sellerMember.permissions.has(PermissionFlagsBits.ManageChannels)
-        || Boolean(config.ticketStaffRoleId && sellerMember.roles.cache.has(config.ticketStaffRoleId));
-      if (!isSeller) {
+      if (!isMarketplaceSellerMember(sellerMember)) {
         await replyUserError(interaction, {
           type: ErrorTypes.VALIDATION,
-          message: 'That user is not a marketplace seller. Choose someone with the configured Ticket Staff Role, or select **Any Seller**.',
+          message: 'That user no longer has the marketplace seller role. Choose a current seller or select **Any Seller**.',
         });
         return;
       }
