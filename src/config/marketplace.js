@@ -33,21 +33,38 @@ export function isPaymentMethodType(methodType) {
 }
 
 export function isMarketplaceSellerMember(member) {
+  if (!member || member.user?.bot) return false;
+
   return Boolean(
-    member
-    && !member.user?.bot
-    && member.roles?.cache?.has(MARKETPLACE_SELLER_ROLE_ID),
+    member.roles?.cache?.has(MARKETPLACE_SELLER_ROLE_ID)
+    || MARKETPLACE_SELLER_IDS.includes(member.id),
   );
 }
 
 export async function getMarketplaceSellerMembers(guild) {
   if (!guild) return [];
 
-  await guild.members.fetch();
-  const sellerRole = await guild.roles.fetch(MARKETPLACE_SELLER_ROLE_ID).catch(() => null);
-  if (!sellerRole) return [];
+  // Refresh the member cache first so role.members is not stale after role changes.
+  await guild.members.fetch().catch(() => null);
 
-  return [...sellerRole.members.values()]
-    .filter(isMarketplaceSellerMember)
+  const sellersById = new Map();
+  const sellerRole = await guild.roles.fetch(MARKETPLACE_SELLER_ROLE_ID).catch(() => null);
+
+  // The role is the live source of truth when Discord can resolve it.
+  if (sellerRole) {
+    for (const member of sellerRole.members.values()) {
+      if (isMarketplaceSellerMember(member)) sellersById.set(member.id, member);
+    }
+  }
+
+  // Keep /vouch usable if the role lookup/cache temporarily fails. These are the
+  // same explicitly approved marketplace sellers already used elsewhere by Perk.
+  for (const sellerId of MARKETPLACE_SELLER_IDS) {
+    const member = guild.members.cache.get(sellerId)
+      || await guild.members.fetch(sellerId).catch(() => null);
+    if (isMarketplaceSellerMember(member)) sellersById.set(member.id, member);
+  }
+
+  return [...sellersById.values()]
     .sort((a, b) => (a.displayName || a.user.username).localeCompare(b.displayName || b.user.username));
 }
