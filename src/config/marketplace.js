@@ -13,6 +13,7 @@ export const PAYMENT_PROFILES = Object.freeze({
   burhan: Object.freeze({ key: 'burhan', name: 'Burhan' }),
   maj: Object.freeze({ key: 'maj', name: 'Maj' }),
   flix: Object.freeze({ key: 'flix', name: 'Flix' }),
+  elias: Object.freeze({ key: 'elias', name: 'Elias' }),
 });
 
 export const PAYMENT_METHOD_TYPES = Object.freeze({
