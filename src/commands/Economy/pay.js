@@ -8,15 +8,14 @@ import {
 } from 'discord.js';
 import {
     MARKETPLACE_SELLER_ROLE_ID,
-    PAYMENT_PROFILES,
 } from '../../config/marketplace.js';
 import { getPaymentProfile } from '../../services/marketplacePaymentService.js';
 import { createMarketplaceEmbed, createErrorEmbed } from '../../utils/embeds.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
 const PAY_PROFILES = Object.freeze([
-    { key: 'arii', name: 'Arii', userId: '900918516855742497' },
-    { key: 'elias', name: 'Elias', userId: '764332417853947934' },
+    { key: 'arii', name: 'Arii', storageKey: 'arii-josi' },
+    { key: 'elias', name: 'Elias', storageKey: 'elias' },
 ]);
 
 function addProfileSubcommand(builder, profile) {
@@ -92,7 +91,7 @@ export default {
             });
         }
 
-        const profile = await getPaymentProfile(interaction.guildId, profileKey);
+        const profile = await getPaymentProfile(interaction.guildId, profileConfig.storageKey);
         const components = buildPaymentComponents(profile);
 
         if (!profile?.enabled) {
@@ -111,8 +110,6 @@ export default {
         return InteractionHelper.safeReply(interaction, {
             embeds: [buildPaymentEmbed(profile)],
             components,
-            // Keep the menu public so the customer can use it. Individual
-            // payment details remain ephemeral in the button handler.
             ephemeral: false,
         });
     },
