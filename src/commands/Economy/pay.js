@@ -14,6 +14,11 @@ import { getPaymentProfile } from '../../services/marketplacePaymentService.js';
 import { createMarketplaceEmbed, createErrorEmbed } from '../../utils/embeds.js';
 import { InteractionHelper } from '../../utils/interactionHelper.js';
 
+const PAY_PROFILES = Object.freeze([
+    { key: 'arii', name: 'Arii', userId: '900918516855742497' },
+    { key: 'elias', name: 'Elias', userId: '764332417853947934' },
+]);
+
 function addProfileSubcommand(builder, profile) {
     return builder.addSubcommand(subcommand =>
         subcommand
@@ -63,7 +68,7 @@ const data = new SlashCommandBuilder()
     .setDescription('Post an approved seller payment profile.')
     .setDMPermission(false);
 
-for (const profile of Object.values(PAYMENT_PROFILES)) {
+for (const profile of PAY_PROFILES) {
     addProfileSubcommand(data, profile);
 }
 
@@ -79,12 +84,20 @@ export default {
         }
 
         const profileKey = interaction.options.getSubcommand(true);
+        const profileConfig = PAY_PROFILES.find(profile => profile.key === profileKey);
+        if (!profileConfig) {
+            return InteractionHelper.safeReply(interaction, {
+                embeds: [createErrorEmbed('That payment profile is not available.')],
+                flags: MessageFlags.Ephemeral,
+            });
+        }
+
         const profile = await getPaymentProfile(interaction.guildId, profileKey);
         const components = buildPaymentComponents(profile);
 
         if (!profile?.enabled) {
             return InteractionHelper.safeReply(interaction, {
-                embeds: [createErrorEmbed(`${PAYMENT_PROFILES[profileKey].name}'s payment profile is currently disabled.`)],
+                embeds: [createErrorEmbed(`${profileConfig.name}'s payment profile is currently disabled.`)],
                 flags: MessageFlags.Ephemeral,
             });
         }
